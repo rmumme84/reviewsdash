@@ -231,6 +231,9 @@ function renderState() {
 
   // Narração
   renderCommentary(st.events);
+
+  // Substituições — mantém selects atualizados a cada render
+  populateSubSelects();
 }
 
 function setStatBar(key, homeVal, awayVal, suffix) {
@@ -398,14 +401,21 @@ document.querySelectorAll('.speed-btn').forEach(btn => {
 function populateSubSelects() {
   if (!engine) return;
   const st = engine.getState();
-  populateSubSide('home', st);
-  populateSubSide('away', st);
+  populateSubSide(activeSubSide, st);
 }
 
 function populateSubSide(side, st) {
   const outEl = document.getElementById('sub-out-select');
   const inEl  = document.getElementById('sub-in-select');
-  outEl.innerHTML = `<option value="">Saindo (${side === 'home' ? engine.home.name : engine.away.name})...</option>`;
+
+  // Guarda seleção atual para tentar preservar após rebuild
+  const prevOut = outEl.value;
+  const prevIn  = inEl.value;
+
+  const teamName = side === 'home' ? engine.home.name : engine.away.name;
+  const subsUsed = st.subs[side];
+  const subsLeft = st.maxSubs - subsUsed;
+  outEl.innerHTML = `<option value="">Saindo — ${teamName} (${subsLeft} sub restante${subsLeft !== 1 ? 's' : ''})...</option>`;
   inEl.innerHTML  = `<option value="">Entrada...</option>`;
 
   const players = side === 'home' ? st.homePlayers : st.awayPlayers;
@@ -417,7 +427,21 @@ function populateSubSide(side, st) {
   bench.forEach(p => {
     inEl.innerHTML += `<option value="${p.id}|${side}">${p.name || 'Jogador'} (${p.overall_rating || p.overall || '?'})</option>`;
   });
+
+  // Restaura seleção prévia se ainda disponível
+  if (prevOut) outEl.value = prevOut;
+  if (prevIn)  inEl.value  = prevIn;
 }
+
+// Toggle home/away para substituições
+document.querySelectorAll('.sub-side-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    activeSubSide = btn.dataset.side;
+    document.querySelectorAll('.sub-side-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    populateSubSelects();
+  });
+});
 
 document.getElementById('btn-sub').addEventListener('click', () => {
   if (!engine) return;
@@ -435,11 +459,6 @@ document.getElementById('btn-sub').addEventListener('click', () => {
     renderState();
   }
 });
-
-// Atualiza sub selects a cada 10s (entradas/saídas por lesão)
-setInterval(() => {
-  if (engine) populateSubSelects();
-}, 10000);
 
 // ─── Start ────────────────────────────────────────────────────────────────
 init();
