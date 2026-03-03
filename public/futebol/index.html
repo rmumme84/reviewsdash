@@ -27,6 +27,14 @@
     </div>
   </div>
 
+  <div class="seed-row">
+    <label for="seed-input">🎲 Seed (opcional — deixe vazio para aleatório)</label>
+    <div class="seed-input-wrap">
+      <input type="text" id="seed-input" placeholder="ex: 12345 ou 'classicoRJ'" autocomplete="off">
+      <span id="seed-display" class="seed-display"></span>
+    </div>
+  </div>
+
   <div class="lineups-preview">
     <div class="lineup-col">
       <h3>Escalação — <span id="home-lineup-title">—</span></h3>
@@ -64,6 +72,7 @@
       <div class="score-info">
         <span id="minute-display">0'</span>
         <span class="phase-badge live" id="phase-badge">AO VIVO</span>
+        <span id="seed-badge" class="seed-badge" title="Seed desta partida"></span>
       </div>
     </div>
     <div class="team-score-col away">

@@ -649,6 +649,43 @@ select:hover, select:focus { border-color: var(--blue); }
   margin-top: 2px;
 }
 
+/* Seed row (A2) */
+.seed-row {
+  margin-bottom: 20px;
+}
+.seed-row label {
+  display: block;
+  font-size: 0.75rem;
+  color: var(--text2);
+  margin-bottom: 6px;
+}
+.seed-input-wrap {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+.seed-input-wrap input {
+  width: 240px;
+  background: var(--bg3);
+  border: 1px solid var(--border);
+  color: var(--text);
+  padding: 6px 10px;
+  border-radius: var(--radius);
+  font-size: 0.9rem;
+  outline: none;
+}
+.seed-input-wrap input:focus { border-color: var(--blue); }
+.seed-display {
+  font-size: 0.75rem;
+  color: var(--text2);
+}
+.seed-badge {
+  font-size: 0.6rem;
+  color: var(--text2);
+  opacity: 0.6;
+  cursor: help;
+}
+
 /* Debug overlay (A1) */
 .debug-overlay {
   position: fixed;

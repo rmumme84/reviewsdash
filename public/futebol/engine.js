@@ -140,9 +140,9 @@ const TEMPLATES = {
   ],
 };
 
-function pick(key, vars = {}) {
+function pick(key, vars = {}, rng = Math.random) {
   const arr = TEMPLATES[key] || ['...'];
-  let t = arr[Math.floor(Math.random() * arr.length)];
+  let t = arr[Math.floor(rng() * arr.length)];
   Object.entries(vars).forEach(([k, v]) => { t = t.replaceAll(`{${k}}`, v); });
   return t;
 }
@@ -180,11 +180,43 @@ function buildLineup(players) {
   return { starters: starters.slice(0, 11), bench };
 }
 
+// ─── PRNG determinístico (A2) ─────────────────────────────────────────────
+// Mulberry32 — rápido, bom para jogos, 32-bit
+function mulberry32(seed) {
+  let s = seed >>> 0;
+  return function() {
+    s += 0x6D2B79F5;
+    let t = Math.imul(s ^ (s >>> 15), 1 | s);
+    t ^= t + Math.imul(t ^ (t >>> 7), 61 | t);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+function seedFromString(str) {
+  // Converte string para número inteiro de 32 bits via djb2
+  let h = 5381;
+  for (let i = 0; i < str.length; i++) h = (Math.imul(h, 33) ^ str.charCodeAt(i)) >>> 0;
+  return h;
+}
+
 // ─── Classe principal ─────────────────────────────────────────────────────────
 class MatchEngine {
   constructor(homeTeam, awayTeam, homePlayers, awayPlayers, options = {}) {
     this.home = homeTeam;
     this.away = awayTeam;
+
+    // ── Seed determinística (A2) ──────────────────────────────────────────
+    const rawSeed = options.seed;
+    let seedNum;
+    if (rawSeed !== undefined && rawSeed !== null && rawSeed !== '') {
+      seedNum = typeof rawSeed === 'number' ? rawSeed : seedFromString(String(rawSeed));
+    } else {
+      seedNum = (Math.random() * 0xFFFFFFFF) >>> 0;
+    }
+    this._seedNum = seedNum;
+    this._rng = mulberry32(seedNum);
+    // Expõe a seed usada para reprodutibilidade
+    options = { ...options, seed: seedNum };
 
     const hLineup = buildLineup(homePlayers);
     const aLineup = buildLineup(awayPlayers);
@@ -239,6 +271,11 @@ class MatchEngine {
     };
   }
 
+  // Wrapper de pick() usando o RNG interno (A2)
+  _pick(key, vars = {}) {
+    return pick(key, vars, this._rng);
+  }
+
   // Equipes ativas em campo
   _activePlayers(side) {
     const list = side === 'home' ? this.homePlayers : this.awayPlayers;
@@ -255,7 +292,7 @@ class MatchEngine {
       return base * stamMod;
     });
     const total = scores.reduce((a, b) => a + b, 0);
-    let r = Math.random() * total;
+    let r = this._rng() * total;
     for (let i = 0; i < players.length; i++) {
       r -= scores[i];
       if (r <= 0) return players[i];
@@ -318,7 +355,7 @@ class MatchEngine {
     // Determine possession this tick
     const homePassing = this._teamRating('home') + this.momentum * 0.1;
     const awayPassing = this._teamRating('away') - this.momentum * 0.1;
-    const homeHasBall = Math.random() * (homePassing + awayPassing) < homePassing;
+    const homeHasBall = this._rng() * (homePassing + awayPassing) < homePassing;
     const attackSide  = homeHasBall ? 'home' : 'away';
     const defendSide  = homeHasBall ? 'away' : 'home';
 
@@ -336,7 +373,7 @@ class MatchEngine {
     this._simulateAction(attackSide, defendSide);
 
     // Checar lesões
-    if (Math.random() < 0.003) this._handleInjury(attackSide);
+    if (this._rng() < 0.003) this._handleInjury(attackSide);
 
     // Verificar fase
     this._checkPhase();
@@ -367,27 +404,27 @@ class MatchEngine {
       const losing = (attSide === 'home' && this.score.home < this.score.away) ||
                      (attSide === 'away' && this.score.away < this.score.home);
       if (losing) pressureBonus = min > 85 ? 0.25 : 0.15;
-      if (losing && Math.random() < 0.04) {
-        this._addEvent('pressure', pick('pressure', { team: attTeam, rival: defTeam }), min, attSide);
+      if (losing && this._rng() < 0.04) {
+        this._addEvent('pressure', this._pick('pressure', { team: attTeam, rival: defTeam }), min, attSide);
       }
     }
 
     // Falta
     const foulChance = 0.08 + (defender.attrs.strength || 60) * 0.0005;
-    if (Math.random() < foulChance) {
+    if (this._rng() < foulChance) {
       this._handleFoul(defSide, defender, attSide, midfielder, midName, attTeam);
       return;
     }
 
     // Chute
     const shootChance = 0.18 + pressureBonus + attacker.attrs.finishing * 0.001;
-    if (Math.random() < shootChance) {
+    if (this._rng() < shootChance) {
       this._handleShot(attSide, defSide, attacker, defender, gk, attName, attTeam, defTeam);
       return;
     }
 
     // Cross/corner (menos frequente)
-    if (Math.random() < 0.06) {
+    if (this._rng() < 0.06) {
       this._handleCorner(attSide, defSide, attacker, gk, attName, attTeam, defTeam);
     }
   }
@@ -408,20 +445,20 @@ class MatchEngine {
     const saveChance     = (gkAttr + defAttr * 0.3) / 160;
 
     // On target?
-    if (Math.random() > onTargetChance) {
-      this._addEvent('miss', pick('miss', { player: attName, team: attTeam }), min, attSide,
+    if (this._rng() > onTargetChance) {
+      this._addEvent('miss', this._pick('miss', { player: attName, team: attTeam }), min, attSide,
         { player: attName, actors: [attName], probs: { onTargetChance: +onTargetChance.toFixed(3), xG: +xG.toFixed(3) } });
       return;
     }
     this.stats[attSide].shotsOnTarget++;
 
     // Gol?
-    if (Math.random() < saveChance) {
+    if (this._rng() < saveChance) {
       this.momentum += defSide === 'home' ? 3 : -3;
       // bola fica com o GK defensor após a defesa
       this.ballSector = defSide === 'home' ? 'home_gk' : 'away_gk';
       const gkName = gk ? (gk.name || 'GK') : 'GK';
-      this._addEvent('save', pick('save', { player: attName, rival: attTeam }), min, defSide,
+      this._addEvent('save', this._pick('save', { player: attName, rival: attTeam }), min, defSide,
         { player: attName, actors: [attName, gkName], probs: { saveChance: +saveChance.toFixed(3), xG: +xG.toFixed(3) } });
       return;
     }
@@ -433,17 +470,17 @@ class MatchEngine {
   _handleCorner(attSide, defSide, attacker, gk, attName, attTeam, defTeam) {
     const min = this.minute;
     this.stats[attSide].corners++;
-    this._addEvent('corner', pick('corner', { team: attTeam, player: attName }), min, attSide);
+    this._addEvent('corner', this._pick('corner', { team: attTeam, player: attName }), min, attSide);
 
     // Chance de gol de cabeça
     const header = this._pickPlayer(attSide, 'strength');
     if (!header) return;
     const gkAttr = gk ? (gk.attrs.gkSkill || 65) : 65;
 
-    if (Math.random() < 0.12) {
-      const saved = Math.random() < gkAttr / 120;
+    if (this._rng() < 0.12) {
+      const saved = this._rng() < gkAttr / 120;
       if (saved) {
-        this._addEvent('save', pick('save', { player: header.name, rival: attTeam }), min, defSide);
+        this._addEvent('save', this._pick('save', { player: header.name, rival: attTeam }), min, defSide);
       } else {
         this._registerGoal(attSide, header, header.name || attName, attTeam, 'header');
       }
@@ -460,14 +497,14 @@ class MatchEngine {
 
     // Cartão?
     let cardGiven = false;
-    if (Math.random() < 0.009) {
+    if (this._rng() < 0.009) {
       // Vermelho direto
       defender.redCard = true;
       defender.active  = false;
       this.stats[defSide].redCards++;
-      this._addEvent('red', pick('red', { player: defName, team: defTeam }), min, defSide, { player: defName });
+      this._addEvent('red', this._pick('red', { player: defName, team: defTeam }), min, defSide, { player: defName });
       cardGiven = true;
-    } else if (Math.random() < 0.07) {
+    } else if (this._rng() < 0.07) {
       // Amarelo
       defender.yellowCards++;
       this.stats[defSide].yellowCards++;
@@ -475,22 +512,22 @@ class MatchEngine {
         defender.redCard = true;
         defender.active  = false;
         this.stats[defSide].redCards++;
-        this._addEvent('red', pick('red', { player: defName, team: defTeam }), min, defSide, { player: defName });
+        this._addEvent('red', this._pick('red', { player: defName, team: defTeam }), min, defSide, { player: defName });
       } else {
-        this._addEvent('yellow', pick('yellow', { player: defName }), min, defSide, { player: defName });
+        this._addEvent('yellow', this._pick('yellow', { player: defName }), min, defSide, { player: defName });
       }
       cardGiven = true;
     }
 
     if (!cardGiven) {
-      if (Math.random() < 0.3) {
-        this._addEvent('foul', pick('foul', { player: defName }), min, defSide);
+      if (this._rng() < 0.3) {
+        this._addEvent('foul', this._pick('foul', { player: defName }), min, defSide);
       }
     }
 
     // Falta perigosa → cobrança
-    if (Math.random() < 0.35) {
-      this._addEvent('freekick', pick('freekick', { team: attTeam, player: attName }), min, attSide);
+    if (this._rng() < 0.35) {
+      this._addEvent('freekick', this._pick('freekick', { team: attTeam, player: attName }), min, attSide);
       this._handleFreekick(attSide, defSide, attacker, attName, attTeam);
     }
   }
@@ -501,28 +538,28 @@ class MatchEngine {
     const gkAttr = gk ? (gk.attrs.gkSkill || 65) : 65;
     this.stats[attSide].shots++;
 
-    if (Math.random() < 0.14) {
+    if (this._rng() < 0.14) {
       this.stats[attSide].shotsOnTarget++;
-      if (Math.random() > gkAttr / 110) {
+      if (this._rng() > gkAttr / 110) {
         this._registerGoal(attSide, attacker, attName, attTeam, 'freekick');
         return;
       }
     }
-    if (Math.random() < 0.2) this._handleCorner(attSide, defSide, attacker, gk, attName, attTeam, '');
+    if (this._rng() < 0.2) this._handleCorner(attSide, defSide, attacker, gk, attName, attTeam, '');
   }
 
   _registerGoal(side, player, playerName, teamName, type) {
     const min = this.minute;
 
     // Gol próprio? (raro, 3%)
-    const ownGoal = Math.random() < 0.03;
+    const ownGoal = this._rng() < 0.03;
     if (ownGoal) {
       const defSide = side === 'home' ? 'away' : 'home';
       const defPlayer = this._pickPlayer(defSide, 'tackling');
       const defName = defPlayer ? defPlayer.name : 'Defensor';
       this.score[side]++;
       const scoreStr = `${this.score.home}–${this.score.away}`;
-      this._addEvent('goal_own', pick('goal_own', { player: defName, score: scoreStr }), min, side, { player: defName, isGoal: true });
+      this._addEvent('goal_own', this._pick('goal_own', { player: defName, score: scoreStr }), min, side, { player: defName, isGoal: true });
       this.momentum += side === 'home' ? 25 : -25;
       return;
     }
@@ -530,20 +567,20 @@ class MatchEngine {
     this.score[side]++;
     const scoreStr = `${this.score.home}–${this.score.away}`;
     const tplKey = type === 'header' ? 'goal_header' : type === 'freekick' ? 'goal_freekick' : 'goal';
-    const text = pick(tplKey, { player: playerName, team: teamName, score: scoreStr });
+    const text = this._pick(tplKey, { player: playerName, team: teamName, score: scoreStr });
     this._addEvent('goal', text, min, side, { player: playerName, isGoal: true });
     this.momentum += side === 'home' ? 25 : -25;
     this.ballSector = 'mid';
 
     // VAR check
-    if (Math.random() < 0.12) {
+    if (this._rng() < 0.12) {
       setTimeout(() => {}, 0); // assíncrono visual tratado na UI
-      this._addEvent('var', pick('var_check'), min, null, { varType: 'check' });
-      if (Math.random() < 0.40) {
+      this._addEvent('var', this._pick('var_check'), min, null, { varType: 'check' });
+      if (this._rng() < 0.40) {
         this.score[side]--;
-        this._addEvent('var', pick('var_reverse'), min, null, { varType: 'reverse' });
+        this._addEvent('var', this._pick('var_reverse'), min, null, { varType: 'reverse' });
       } else {
-        this._addEvent('var', pick('var_confirm'), min, null, { varType: 'confirm' });
+        this._addEvent('var', this._pick('var_confirm'), min, null, { varType: 'confirm' });
       }
     }
   }
@@ -553,9 +590,9 @@ class MatchEngine {
     if (!player) return;
     const min = this.minute;
     const name = player.name || 'Jogador';
-    this._addEvent('injury', pick('injury', { player: name }), min, side, { player: name });
+    this._addEvent('injury', this._pick('injury', { player: name }), min, side, { player: name });
 
-    const major = Math.random() < 0.35;
+    const major = this._rng() < 0.35;
     if (major) {
       // Força substituição obrigatória
       const bench = side === 'home' ? this.homeBench : this.awayBench;
@@ -586,22 +623,22 @@ class MatchEngine {
 
   _checkPhase() {
     if (this.phase === 'FIRST_HALF' && this.tick >= 90) {
-      this._injuryTime = Math.floor(Math.random() * 3) + 1;
+      this._injuryTime = Math.floor(this._rng() * 3) + 1;
     }
     if (this.phase === 'FIRST_HALF' && this.tick >= 90 + this._injuryTime * 2) {
       this.phase  = 'HALF_TIME';
       this.minute = 45;
-      this._addEvent('phase', pick('halftime'), 45, null, { isPhase: true });
+      this._addEvent('phase', this._pick('halftime'), 45, null, { isPhase: true });
       this._injuryTime = 0;
       return;
     }
     if (this.phase === 'SECOND_HALF' && this.tick >= 180) {
-      this._injuryTime = Math.floor(Math.random() * 5) + 2;
+      this._injuryTime = Math.floor(this._rng() * 5) + 2;
     }
     if (this.phase === 'SECOND_HALF' && this.tick >= 180 + this._injuryTime * 2) {
       this.phase  = 'FINISHED';
       this.minute = 90;
-      this._addEvent('phase', pick('fulltime'), 90, null, { isPhase: true });
+      this._addEvent('phase', this._pick('fulltime'), 90, null, { isPhase: true });
     }
   }
 
@@ -609,7 +646,7 @@ class MatchEngine {
   startSecondHalf() {
     if (this.phase !== 'HALF_TIME') return;
     this.phase = 'SECOND_HALF';
-    this._addEvent('phase', pick('kickoff2'), 46, null, { isPhase: true });
+    this._addEvent('phase', this._pick('kickoff2'), 46, null, { isPhase: true });
   }
 
   // Substituição manual (chamada pela UI)
@@ -641,6 +678,7 @@ class MatchEngine {
       events:     this.events,
       subs:       { ...this.subs },
       maxSubs:    this.maxSubs,
+      seed:       this._seedNum,
       stats:      {
         home: { ...this.stats.home },
         away: { ...this.stats.away },

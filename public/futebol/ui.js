@@ -13,6 +13,15 @@ let activeSubSide = 'home'; // controle de substituição exibida
 // Velocidade: ticks por segundo
 const SPEED_MAP = { 1: 500, 2: 250, 4: 100 };
 
+// ─── Seed (A2) — lê querystring ?seed= ──────────────────────────────────
+const _urlSeed = new URLSearchParams(window.location.search).get('seed');
+if (_urlSeed !== null) {
+  document.addEventListener('DOMContentLoaded', () => {
+    const el = document.getElementById('seed-input');
+    if (el) el.value = _urlSeed;
+  });
+}
+
 // ─── Init ──────────────────────────────────────────────────────────────────
 async function init() {
   try {
@@ -127,7 +136,9 @@ function startMatch() {
   const hp = getTeamPlayers(ht.name);
   const ap = getTeamPlayers(at.name);
 
-  engine = new MatchEngine(ht, at, hp, ap, { mode: 'league' });
+  // Seed (A2): lê do input ou querystring
+  const seedRaw = document.getElementById('seed-input').value.trim() || _urlSeed || '';
+  engine = new MatchEngine(ht, at, hp, ap, { mode: 'league', seed: seedRaw || undefined });
   engine.advance(); // PRE_GAME → FIRST_HALF
 
   // Montar UI
@@ -141,6 +152,12 @@ function startMatch() {
   document.getElementById('screen-pre').style.display  = 'none';
   document.getElementById('screen-live').style.display = 'block';
   document.getElementById('finished-overlay').classList.remove('show');
+
+  // Exibe seed usada (A2)
+  const seedDisplay = document.getElementById('seed-display');
+  if (seedDisplay) seedDisplay.textContent = `Seed: ${engine._seedNum}`;
+  const seedBadge = document.getElementById('seed-badge');
+  if (seedBadge) seedBadge.textContent = `🎲${engine._seedNum}`;
 
   populateSubSelects();
   renderState();
