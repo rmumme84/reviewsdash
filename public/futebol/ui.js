@@ -244,21 +244,38 @@ function setStatBar(key, homeVal, awayVal, suffix) {
 
 function renderMomentum(mom) {
   const fill = document.getElementById('momentum-fill');
-  // mom range -100 a 100; center = 50%
-  const pct = Math.round(50 + mom * 0.4); // map ±100 → 10%–90%
+  // mom range -100 a 100; center = 50% da barra
+  const pct = Math.round(50 + mom * 0.4); // mapeia ±100 → 10%–90%
+  const clamped = Math.min(Math.max(pct, 10), 90);
   if (mom > 0) {
-    // home domina — barra da esquerda
-    fill.style.left   = `${Math.max(pct, 50)}%`;
-    fill.style.right  = 'auto';
-    fill.style.width  = `${Math.min(pct - 50, 40)}%`;
+    // home domina — barra cresce da linha central para a direita
+    fill.style.left       = '50%';
+    fill.style.right      = 'auto';
+    fill.style.width      = `${clamped - 50}%`;
     fill.style.background = 'var(--home)';
-  } else {
-    fill.style.left  = 'auto';
-    fill.style.right = `${Math.max(50 - pct, 0)}%`;
-    fill.style.width  = `${Math.min(50 - pct, 40)}%`;
+  } else if (mom < 0) {
+    // away domina — barra cresce da linha central para a esquerda
+    fill.style.left       = `${clamped}%`;
+    fill.style.right      = 'auto';
+    fill.style.width      = `${50 - clamped}%`;
     fill.style.background = 'var(--away)';
+  } else {
+    fill.style.width = '0%';
   }
 }
+
+// Caso de teste manual do momentum (A5 — validação)
+// Uso: window._testMomentum(50) → home domina; window._testMomentum(-50) → away domina
+window._testMomentum = function(mom) {
+  console.log(`[testMomentum] mom=${mom}`);
+  renderMomentum(mom);
+  const fill = document.getElementById('momentum-fill');
+  console.log(`[testMomentum] fill.left=${fill.style.left} fill.width=${fill.style.width} fill.bg=${fill.style.background}`);
+};
+// Caso 1: home forte
+window._testMomentum(60);
+// Caso 2: away forte
+setTimeout(() => window._testMomentum(-60), 1500);
 
 // Bola SVG
 const BALL_POS = {
