@@ -1,0 +1,266 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>GuerraFoot — Simulador ao Vivo</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<!-- ══════════════════════════════════════════════════════
+     TELA PRÉ-JOGO
+══════════════════════════════════════════════════════ -->
+<div id="screen-pre">
+  <div class="pre-title">⚽ GUERRAFOOT</div>
+  <div class="pre-subtitle">Simulador ao Vivo — Brasileirão 2025</div>
+
+  <div class="team-select-row">
+    <div class="team-select-col">
+      <label>Time da Casa</label>
+      <select id="select-home"></select>
+    </div>
+    <div class="vs-badge">VS</div>
+    <div class="team-select-col">
+      <label>Time Visitante</label>
+      <select id="select-away"></select>
+    </div>
+  </div>
+
+  <div class="lineups-preview">
+    <div class="lineup-col">
+      <h3>Escalação — <span id="home-lineup-title">—</span></h3>
+      <ul class="lineup-list" id="home-lineup-list"></ul>
+    </div>
+    <div class="lineup-col">
+      <h3>Escalação — <span id="away-lineup-title">—</span></h3>
+      <ul class="lineup-list" id="away-lineup-list"></ul>
+    </div>
+  </div>
+
+  <button class="btn-start" id="btn-start" disabled>Carregar dados...</button>
+</div>
+
+<!-- ══════════════════════════════════════════════════════
+     TELA AO VIVO
+══════════════════════════════════════════════════════ -->
+<div id="screen-live">
+
+  <!-- Scoreboard -->
+  <div class="scoreboard">
+    <div class="team-score-col home">
+      <div class="team-crest" id="crest-home" style="background:#1a3a5c">H</div>
+      <div class="team-name-score">
+        <strong id="name-home">—</strong>
+        <div class="events-row" id="events-home"></div>
+      </div>
+    </div>
+    <div class="score-center">
+      <div class="score-numbers">
+        <span class="score-home" id="score-home">0</span>
+        <span class="score-sep"> – </span>
+        <span class="score-away" id="score-away">0</span>
+      </div>
+      <div class="score-info">
+        <span id="minute-display">0'</span>
+        <span class="phase-badge live" id="phase-badge">AO VIVO</span>
+      </div>
+    </div>
+    <div class="team-score-col away">
+      <div class="team-crest" id="crest-away" style="background:#5c1a1a">V</div>
+      <div class="team-name-score">
+        <strong id="name-away">—</strong>
+        <div class="events-row" id="events-away"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Campo + Stats -->
+  <div class="live-grid">
+    <!-- Campo SVG -->
+    <div class="field-wrap">
+      <svg id="field-svg" viewBox="0 0 400 180" preserveAspectRatio="xMidYMid meet">
+        <!-- Gramado -->
+        <rect width="400" height="180" fill="#1a4a1a"/>
+        <!-- Setores (5) -->
+        <rect id="sector-home-gk"  x="0"   y="0" width="60"  height="180" fill="#155215" opacity="0.7" class="field-sector"/>
+        <rect id="sector-home-def" x="60"  y="0" width="80"  height="180" fill="#1a5a1a" opacity="0.7" class="field-sector"/>
+        <rect id="sector-mid"      x="140" y="0" width="120" height="180" fill="#1e631e" opacity="0.7" class="field-sector"/>
+        <rect id="sector-away-def" x="260" y="0" width="80"  height="180" fill="#1a5a1a" opacity="0.7" class="field-sector"/>
+        <rect id="sector-away-gk"  x="340" y="0" width="60"  height="180" fill="#155215" opacity="0.7" class="field-sector"/>
+        <!-- Linhas -->
+        <line x1="60"  y1="0" x2="60"  y2="180" stroke="#2d7a2d" stroke-width="1"/>
+        <line x1="140" y1="0" x2="140" y2="180" stroke="#2d7a2d" stroke-width="1"/>
+        <line x1="200" y1="0" x2="200" y2="180" stroke="white"   stroke-width="1.5" opacity="0.6"/>
+        <line x1="260" y1="0" x2="260" y2="180" stroke="#2d7a2d" stroke-width="1"/>
+        <line x1="340" y1="0" x2="340" y2="180" stroke="#2d7a2d" stroke-width="1"/>
+        <!-- Círculo central -->
+        <circle cx="200" cy="90" r="35" fill="none" stroke="white" stroke-width="1" opacity="0.4"/>
+        <!-- Áreas -->
+        <rect x="0"   y="45" width="35" height="90" fill="none" stroke="white" stroke-width="1" opacity="0.35"/>
+        <rect x="365" y="45" width="35" height="90" fill="none" stroke="white" stroke-width="1" opacity="0.35"/>
+        <!-- Goleiras -->
+        <rect x="0"   y="70" width="8"  height="40" fill="none" stroke="white" stroke-width="1.5" opacity="0.6"/>
+        <rect x="392" y="70" width="8"  height="40" fill="none" stroke="white" stroke-width="1.5" opacity="0.6"/>
+        <!-- Labels times -->
+        <text x="30"  y="170" text-anchor="middle" fill="white" font-size="9" opacity="0.5" id="field-label-home">CASA</text>
+        <text x="370" y="170" text-anchor="middle" fill="white" font-size="9" opacity="0.5" id="field-label-away">VISIT</text>
+        <!-- Bola -->
+        <circle id="ball" cx="200" cy="90" r="7" fill="white" stroke="#333" stroke-width="1.5">
+          <animate attributeName="opacity" values="1;0.7;1" dur="1.2s" repeatCount="indefinite"/>
+        </circle>
+      </svg>
+    </div>
+
+    <!-- Stats -->
+    <div class="stats-panel">
+      <h4>Estatísticas</h4>
+      <div class="stat-row">
+        <div class="stat-labels">
+          <span id="stat-poss-home">50%</span>
+          <span class="stat-name">Posse</span>
+          <span id="stat-poss-away">50%</span>
+        </div>
+        <div class="stat-bar-wrap">
+          <div class="stat-bar-home" id="bar-poss-home" style="width:50%"></div>
+          <div class="stat-bar-away" id="bar-poss-away"></div>
+        </div>
+      </div>
+      <div class="stat-row">
+        <div class="stat-labels">
+          <span id="stat-shots-home">0</span>
+          <span class="stat-name">Chutes</span>
+          <span id="stat-shots-away">0</span>
+        </div>
+        <div class="stat-bar-wrap">
+          <div class="stat-bar-home" id="bar-shots-home" style="width:50%"></div>
+          <div class="stat-bar-away" id="bar-shots-away"></div>
+        </div>
+      </div>
+      <div class="stat-row">
+        <div class="stat-labels">
+          <span id="stat-xg-home">0.0</span>
+          <span class="stat-name">xG</span>
+          <span id="stat-xg-away">0.0</span>
+        </div>
+        <div class="stat-bar-wrap">
+          <div class="stat-bar-home" id="bar-xg-home" style="width:50%"></div>
+          <div class="stat-bar-away" id="bar-xg-away"></div>
+        </div>
+      </div>
+      <div style="margin-top:10px; border-top:1px solid var(--border); padding-top:8px;">
+        <div class="stat-simple">
+          <span class="home-val" id="stat-sot-home">0</span>
+          <span class="sname">No alvo</span>
+          <span class="away-val" id="stat-sot-away">0</span>
+        </div>
+        <div class="stat-simple">
+          <span class="home-val" id="stat-fouls-home">0</span>
+          <span class="sname">Faltas</span>
+          <span class="away-val" id="stat-fouls-away">0</span>
+        </div>
+        <div class="stat-simple">
+          <span class="home-val" id="stat-corners-home">0</span>
+          <span class="sname">Escanteios</span>
+          <span class="away-val" id="stat-corners-away">0</span>
+        </div>
+        <div class="stat-simple">
+          <span class="home-val" id="stat-yellow-home">0🟨</span>
+          <span class="sname">Cartões</span>
+          <span class="away-val" id="stat-yellow-away">0🟨</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Barra de Momentum -->
+  <div class="momentum-wrap">
+    <div class="momentum-label">
+      <span id="momentum-home-label">← Casa</span>
+      <span style="color:var(--text2)">MOMENTUM</span>
+      <span id="momentum-away-label">Visit →</span>
+    </div>
+    <div class="momentum-bar-wrap">
+      <div class="momentum-fill" id="momentum-fill"></div>
+      <div class="momentum-center-line"></div>
+    </div>
+  </div>
+
+  <!-- Controles -->
+  <div class="controls-wrap">
+    <button class="ctrl-btn pause-btn" id="btn-pause">⏸ Pausar</button>
+    <span class="ctrl-sep">|</span>
+    <button class="ctrl-btn speed-btn" id="btn-1x" data-speed="1">1x</button>
+    <button class="ctrl-btn speed-btn active" id="btn-2x" data-speed="2">2x</button>
+    <button class="ctrl-btn speed-btn" id="btn-4x" data-speed="4">4x</button>
+    <span class="ctrl-sep">|</span>
+    <div class="sub-section">
+      <select class="sub-select" id="sub-out-select">
+        <option value="">Substituir saindo...</option>
+      </select>
+      <select class="sub-select" id="sub-in-select">
+        <option value="">Entrada...</option>
+      </select>
+      <button class="sub-btn" id="btn-sub">Substituir</button>
+    </div>
+  </div>
+
+  <!-- Narração -->
+  <div class="commentary-wrap">
+    <div class="commentary-header">
+      <div class="live-dot"></div>
+      Narração ao Vivo
+    </div>
+    <div class="commentary-list" id="commentary-list"></div>
+  </div>
+
+</div><!-- /screen-live -->
+
+<!-- ══════════════════════════════════════════════════════
+     OVERLAY: INTERVALO
+══════════════════════════════════════════════════════ -->
+<div class="halftime-overlay" id="halftime-overlay">
+  <div class="halftime-box">
+    <h2>⏱ Intervalo</h2>
+    <div class="halftime-score" id="ht-score">0 – 0</div>
+    <div class="ht-teams" id="ht-teams">Time A × Time B</div>
+    <div class="ht-stats">
+      <div class="ht-stat-row">
+        <span class="hn" id="ht-shots-home">0</span>
+        <span>Chutes</span>
+        <span class="an" id="ht-shots-away">0</span>
+      </div>
+      <div class="ht-stat-row">
+        <span class="hn" id="ht-poss-home">50%</span>
+        <span>Posse</span>
+        <span class="an" id="ht-poss-away">50%</span>
+      </div>
+      <div class="ht-stat-row">
+        <span class="hn" id="ht-xg-home">0.0</span>
+        <span>xG</span>
+        <span class="an" id="ht-xg-away">0.0</span>
+      </div>
+    </div>
+    <button class="btn-continue" id="btn-continue">▶ Iniciar 2º Tempo</button>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════
+     OVERLAY: FIM DE JOGO
+══════════════════════════════════════════════════════ -->
+<div class="finished-overlay" id="finished-overlay">
+  <h2>🏁 Fim de Jogo</h2>
+  <div class="final-score" id="final-score">0 – 0</div>
+  <div class="final-teams" id="final-teams">Time A × Time B</div>
+  <div class="mvp-row">
+    <div class="label">MVP DA PARTIDA</div>
+    <div class="name" id="mvp-name">—</div>
+    <div class="team" id="mvp-team">—</div>
+  </div>
+  <button class="btn-new-game" id="btn-new-game">↩ Nova Partida</button>
+</div>
+
+<script src="engine.js"></script>
+<script src="ui.js"></script>
+</body>
+</html>
