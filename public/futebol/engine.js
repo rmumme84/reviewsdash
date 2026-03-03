@@ -401,7 +401,8 @@ class MatchEngine {
     const saveChance = (gkAttr + defAttr * 0.3) / 160;
     if (Math.random() < saveChance) {
       this.momentum += defSide === 'home' ? 3 : -3;
-      this.ballSector = 'mid';
+      // bola fica com o GK defensor após a defesa
+      this.ballSector = defSide === 'home' ? 'home_gk' : 'away_gk';
       this._addEvent('save', pick('save', { player: attName, rival: attTeam }), min, defSide);
       return;
     }
