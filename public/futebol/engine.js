@@ -275,7 +275,21 @@ class MatchEngine {
   }
 
   _addEvent(type, text, min, side = null, extra = {}) {
-    this.events.unshift({ type, text, min, side, ...extra });
+    const ev = {
+      type,
+      text,
+      min,
+      side,
+      // ── campos estruturados (A1) ──
+      ts:     Date.now(),
+      tick:   this.tick,
+      sector: this.ballSector,
+      actors: extra.actors || (extra.player ? [extra.player] : []),
+      probs:  extra.probs  || {},
+      // demais campos do extra (isGoal, isSub, etc.)
+      ...extra,
+    };
+    this.events.unshift(ev);
     if (this.events.length > 100) this.events.pop();
   }
 
@@ -390,20 +404,25 @@ class MatchEngine {
     const xG = Math.min(0.9, (finAttr / 100) * 0.55 * stamMod * (1 + this.momentum * 0.003));
     this.stats[attSide].xG = +(this.stats[attSide].xG + xG).toFixed(3);
 
+    const onTargetChance = finAttr / 110;
+    const saveChance     = (gkAttr + defAttr * 0.3) / 160;
+
     // On target?
-    if (Math.random() > finAttr / 110) {
-      this._addEvent('miss', pick('miss', { player: attName, team: attTeam }), min, attSide);
+    if (Math.random() > onTargetChance) {
+      this._addEvent('miss', pick('miss', { player: attName, team: attTeam }), min, attSide,
+        { player: attName, actors: [attName], probs: { onTargetChance: +onTargetChance.toFixed(3), xG: +xG.toFixed(3) } });
       return;
     }
     this.stats[attSide].shotsOnTarget++;
 
     // Gol?
-    const saveChance = (gkAttr + defAttr * 0.3) / 160;
     if (Math.random() < saveChance) {
       this.momentum += defSide === 'home' ? 3 : -3;
       // bola fica com o GK defensor após a defesa
       this.ballSector = defSide === 'home' ? 'home_gk' : 'away_gk';
-      this._addEvent('save', pick('save', { player: attName, rival: attTeam }), min, defSide);
+      const gkName = gk ? (gk.name || 'GK') : 'GK';
+      this._addEvent('save', pick('save', { player: attName, rival: attTeam }), min, defSide,
+        { player: attName, actors: [attName, gkName], probs: { saveChance: +saveChance.toFixed(3), xG: +xG.toFixed(3) } });
       return;
     }
 

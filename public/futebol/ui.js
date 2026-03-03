@@ -234,6 +234,8 @@ function renderState() {
 
   // Substituições — mantém selects atualizados a cada render
   populateSubSelects();
+  // Debug overlay (A1)
+  renderDebug();
 }
 
 function setStatBar(key, homeVal, awayVal, suffix) {
@@ -476,6 +478,45 @@ document.getElementById('btn-sub').addEventListener('click', () => {
     renderState();
   }
 });
+
+// ─── Debug Overlay (A1) ──────────────────────────────────────────────────
+let debugOpen = false;
+document.getElementById('btn-debug').addEventListener('click', () => {
+  debugOpen = !debugOpen;
+  document.getElementById('debug-overlay').style.display = debugOpen ? 'flex' : 'none';
+  document.getElementById('btn-debug').classList.toggle('active', debugOpen);
+  if (debugOpen) renderDebug();
+});
+document.getElementById('btn-debug-close').addEventListener('click', () => {
+  debugOpen = false;
+  document.getElementById('debug-overlay').style.display = 'none';
+  document.getElementById('btn-debug').classList.remove('active');
+});
+
+function renderDebug() {
+  if (!debugOpen || !engine) return;
+  const st = engine.getState();
+  const payload = {
+    tick:       engine.tick,
+    minute:     st.minute,
+    phase:      st.phase,
+    score:      st.score,
+    momentum:   +engine.momentum.toFixed(2),
+    ballSector: st.ballSector,
+    seed:       engine.options.seed ?? null,
+    recentEvents: st.events.slice(0, 10).map(ev => ({
+      type:    ev.type,
+      min:     ev.min,
+      tick:    ev.tick,
+      sector:  ev.sector,
+      actors:  ev.actors,
+      probs:   ev.probs,
+      side:    ev.side,
+      ts:      ev.ts,
+    })),
+  };
+  document.getElementById('debug-content').textContent = JSON.stringify(payload, null, 2);
+}
 
 // ─── Start ────────────────────────────────────────────────────────────────
 init();

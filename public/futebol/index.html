@@ -194,6 +194,7 @@
     <button class="ctrl-btn speed-btn active" id="btn-2x" data-speed="2">2x</button>
     <button class="ctrl-btn speed-btn" id="btn-4x" data-speed="4">4x</button>
     <span class="ctrl-sep">|</span>
+    <button class="ctrl-btn" id="btn-debug" title="Toggle debug overlay">🐛 Debug</button>
     <div class="sub-section">
       <button class="sub-side-btn active" id="sub-side-home" data-side="home">Casa</button>
       <button class="sub-side-btn" id="sub-side-away" data-side="away">Visit</button>
@@ -260,6 +261,17 @@
     <div class="team" id="mvp-team">—</div>
   </div>
   <button class="btn-new-game" id="btn-new-game">↩ Nova Partida</button>
+</div>
+
+<!-- ══════════════════════════════════════════════════════
+     DEBUG OVERLAY (A1)
+══════════════════════════════════════════════════════ -->
+<div id="debug-overlay" class="debug-overlay" style="display:none">
+  <div class="debug-header">
+    <span>🐛 Debug — Event Log Estruturado</span>
+    <button id="btn-debug-close">✕</button>
+  </div>
+  <pre id="debug-content" class="debug-content"></pre>
 </div>
 
 <script src="engine.js"></script>
