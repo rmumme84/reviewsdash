@@ -3158,14 +3158,16 @@ async function load(){
   if(btn) btn.disabled = true;
   setStatus('Carregando…');
   try{
-    const r = await fetch('./data/unified.json?ts=' + Date.now(), { cache:'no-store' });
+    const r = await fetch('./data/dash.json?ts=' + Date.now(), { cache:'no-store' });
     const unifiedRes = await r.json();
     const source = (unifiedRes && Array.isArray(unifiedRes.hospitals)) ? unifiedRes : { hospitals: [] };
     const hospitals = flattenHospitals(source, null);
     const all = computeAll(hospitals);
     dbg('hospitals_len', hospitals.length);
     dbg('all_len', all.length);
-    try{ await render(all, source?.kpis || null, source?.trend15 || null); }catch(err){ dbg('render_call_err', String(err)); }
+    const payloadKpis = source?.kpis ? { ...source.kpis } : {};
+    if(source?.networkBaseline != null && payloadKpis.baseline == null) payloadKpis.baseline = source.networkBaseline;
+    try{ await render(all, Object.keys(payloadKpis).length ? payloadKpis : null, source?.trend15 || null); }catch(err){ dbg('render_call_err', String(err)); }
     try{ renderReport90(all); }catch(err){ dbg('report90_call_err', String(err)); }
     dbg('before_risk_siren', true);
     setRiskSiren(source?.siren24h || computeS3S4_24h(all));
