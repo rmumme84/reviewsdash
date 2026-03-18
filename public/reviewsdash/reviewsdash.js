@@ -3152,24 +3152,21 @@ async function load(){
   if(btn) btn.disabled = true;
   setStatus('Carregando…');
   try{
-    const r = await fetch('/api/reviews/unified.json?ts=' + Date.now(), { cache:'no-store' });
-    const unifiedRes = await r.json();
-    const source = (unifiedRes && Array.isArray(unifiedRes.hospitals)) ? unifiedRes : { hospitals: [] };
-    const hospitals = flattenHospitals(source, null);
+    const r = await fetch('/api/reviews/reviewsdash_summary.json?ts=' + Date.now(), { cache:'no-store' });
+    const summary = await r.json();
+    dbg('summary_keys', Object.keys(summary || {}));
+    const hospitals = Array.isArray(summary?.hospitals) ? summary.hospitals : [];
     const all = computeAll(hospitals);
     dbg('hospitals_len', hospitals.length);
     dbg('all_len', all.length);
-    try{ await render(all, source?.kpis || null, source?.trend15 || null); }catch(err){ dbg('render_call_err', String(err)); }
+    try{ await render(all, summary?.kpi || null, summary?.trend15 || null); }catch(err){ dbg('render_call_err', String(err)); }
     try{ renderReport90(all); }catch(err){ dbg('report90_call_err', String(err)); }
-    dbg('before_risk_siren', true);
-    setRiskSiren(source?.siren24h || computeS3S4_24h(all));
-    dbg('after_risk_siren', true);
-    const gen = source?.updatedAt ? new Date(source.updatedAt) : (source?.generatedAt ? new Date(source.generatedAt) : new Date());
+    try{ setRiskSiren(summary?.report90 || computeS3S4_24h(all)); }catch(err){ dbg('risk_siren_err', String(err)); }
+    const gen = summary?.generatedAt ? new Date(summary.generatedAt) : new Date();
     const hh = String(gen.getHours()).padStart(2,'0');
     const mm = String(gen.getMinutes()).padStart(2,'0');
     const ss = String(gen.getSeconds()).padStart(2,'0');
     setStatus('Atualizado ' + hh + ':' + mm + ':' + ss);
-    // hard final DOM writes to guarantee visible output
     if(tBox && tBox.innerText.trim() === 'Carregando…') tBox.innerHTML = '<div class="placeholder">Sem dados disponíveis</div>';
     if(mBox && mBox.innerText.trim() === 'Carregando…') mBox.innerHTML = '<div class="placeholder">Sem dados disponíveis</div>';
     if(cBox && cBox.innerText.trim() === 'Carregando…') cBox.innerHTML = '<div class="placeholder">Sem dados disponíveis</div>';
@@ -3179,10 +3176,7 @@ async function load(){
     if(tBox) tBox.innerHTML = '<div class="placeholder">Falha ao carregar</div>';
     if(mBox) mBox.innerHTML = '<div class="placeholder">Falha ao carregar</div>';
     if(cBox) cBox.innerHTML = '<div class="placeholder">Falha ao carregar</div>';
-  } finally {
-    if(tBox && tBox.innerText.trim() === 'Carregando…') tBox.innerHTML = '<div class="placeholder">Sem dados disponíveis</div>';
-    if(mBox && mBox.innerText.trim() === 'Carregando…') mBox.innerHTML = '<div class="placeholder">Sem dados disponíveis</div>';
-    if(cBox && cBox.innerText.trim() === 'Carregando…') cBox.innerHTML = '<div class="placeholder">Sem dados disponíveis</div>';
+  }finally{
     if(btn) btn.disabled = false;
   }
 }
