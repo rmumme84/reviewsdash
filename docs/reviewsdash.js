@@ -164,7 +164,7 @@ REVIEWS NEGATIVOS (amostra):
 ${sample.neg.map(x=>`- (${x.rating}★) ${x.text}`).join('\n')}`;
 
   try{
-    const ai = await fetch('/api/ai/openai', {
+    const ai = await fetch('./data/report90.json', {
       method:'POST',
       headers:{'content-type':'application/json'},
       body: JSON.stringify({ prompt })
@@ -3152,7 +3152,7 @@ async function load(){
   if(btn) btn.disabled = true;
   setStatus('Carregando…');
   try{
-    const r = await fetch('/api/reviews/unified.json?ts=' + Date.now(), { cache:'no-store' });
+    const r = await fetch('./data/unified.json?ts=' + Date.now(), { cache:'no-store' });
     const unifiedRes = await r.json();
     const source = (unifiedRes && Array.isArray(unifiedRes.hospitals)) ? unifiedRes : { hospitals: [] };
     const hospitals = flattenHospitals(source, null);
@@ -3248,7 +3248,7 @@ window.addEventListener('DOMContentLoaded', ()=>{
     const prev = dlPdfBtn.textContent;
     dlPdfBtn.textContent = 'Gerando…';
     try{
-      const r = await fetch('/api/reviews/report90.pdf', { cache:'no-store' });
+      const r = await fetch('./data/report90.pdf', { cache:'no-store' });
       if(!r.ok) throw new Error('http_'+r.status);
       const blob = await r.blob();
       const url = URL.createObjectURL(blob);
