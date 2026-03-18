@@ -597,13 +597,18 @@ function computeKPIs(all){
   // média 7d e variação vs 7d anterior
   const all7 = lastNDays(all, 7).filter(r=>r.rating!=null);
   const all14 = lastNDays(all, 14).filter(r=>r.rating!=null);
+  const all15 = lastNDays(all, 15).filter(r=>r.rating!=null);
   const cut = new Date(Date.now() - 7*24*3600*1000);
   const prev7 = all14.filter(x=> new Date(x.iso) < cut);
 
   const avg7 = all7.length ? (all7.reduce((s,r)=>s+r.rating,0)/all7.length) : null;
+  const avg15 = all15.length ? (all15.reduce((s,r)=>s+r.rating,0)/all15.length) : null;
   const avgPrev7 = prev7.length ? (prev7.reduce((s,r)=>s+r.rating,0)/prev7.length) : null;
   // delta vs ranking geral (baseline)
   const delta7 = (avg7!=null && baseline!=null) ? (avg7-baseline) : null;
+
+  // rankText: formatted baseline for display
+  const rankText = (baseline!=null && Number.isFinite(baseline)) ? ('★' + fmt(baseline, 2)) : null;
 
   // movers (hospital)
   const movers = computeMovers(all);
@@ -615,7 +620,7 @@ function computeKPIs(all){
   const vPrev = prev7.length;
   const vDelta = vPrev ? ((v7/vPrev - 1)*100) : null;
 
-  return { baseline, avg7, avgPrev7, delta7, topMove, worstMove, v7, vPrev, vDelta };
+  return { baseline, rankText, avg7, avg15, avgPrev7, delta7, topMove, worstMove, v7, vPrev, vDelta };
 }
 
 function computeS3S4_90d(all){
@@ -2317,9 +2322,9 @@ async function render(all, payloadKpis, payloadTrend15){
 
   const movers = computeMovers(all);
   setHTML(moversBox, '<div class="section-title">TOP 5 MELHORAS</div><table><thead><tr><th>HOSPITAL</th><th>7D</th><th>HIST</th><th>VOL7D</th></tr></thead><tbody>' +
-    ((movers.up||[]).slice(0,5).map(x => '<tr><td>' + esc(x.hospital||'—') + '</td><td>' + fmt(x.avg7,2) + '★</td><td>' + fmt(x.avgHist,2) + '★</td><td>' + (x.vol7d||0) + '</td></tr>').join('') || '<tr><td colspan="4">—</td></tr>') +
+    ((movers.up||[]).slice(0,5).map(x => '<tr><td>' + esc(x.name||'—') + '</td><td>' + fmt(x.cAvg,2) + '★</td><td>' + fmt(x.base,2) + '★</td><td>' + (x.cN||0) + '</td></tr>').join('') || '<tr><td colspan="4">—</td></tr>') +
     '</tbody></table><div class="section-title" style="margin-top:10px">TOP 5 QUEDAS</div><table><thead><tr><th>HOSPITAL</th><th>7D</th><th>HIST</th><th>VOL7D</th></tr></thead><tbody>' +
-    ((movers.down||[]).slice(0,5).map(x => '<tr><td>' + esc(x.hospital||'—') + '</td><td>' + fmt(x.avg7,2) + '★</td><td>' + fmt(x.avgHist,2) + '★</td><td>' + (x.vol7d||0) + '</td></tr>').join('') || '<tr><td colspan="4">—</td></tr>') +
+    ((movers.down||[]).slice(0,5).map(x => '<tr><td>' + esc(x.name||'—') + '</td><td>' + fmt(x.cAvg,2) + '★</td><td>' + fmt(x.base,2) + '★</td><td>' + (x.cN||0) + '</td></tr>').join('') || '<tr><td colspan="4">—</td></tr>') +
     '</tbody></table>');
 
   const rows7 = lastNDays(all, 7).slice(-18).reverse();
@@ -2330,6 +2335,7 @@ async function render(all, payloadKpis, payloadTrend15){
 
   if(report90) renderReport90(all);
   const baseline = k.baseline;
+  renderTyphoon(all, baseline);
   const series = buildDailyTrend(lastNDays(all,15), 15);
   const labels = series.map(x=>x.day.slice(5));
   const dataVol = series.map(x=>x.volume);
@@ -3207,6 +3213,16 @@ function setView(which){
 }
 
 window.addEventListener('DOMContentLoaded', ()=>{
+  // Sidebar toggle (mobile drawer)
+  const sidebar = document.getElementById('sidebar');
+  const sidebarOverlay = document.getElementById('sidebarOverlay');
+  const btnHamburger = document.getElementById('btnHamburger');
+  function openSidebar(){ if(sidebar) sidebar.classList.add('open'); if(sidebarOverlay) sidebarOverlay.classList.add('open'); }
+  function closeSidebar(){ if(sidebar) sidebar.classList.remove('open'); if(sidebarOverlay) sidebarOverlay.classList.remove('open'); }
+  if(btnHamburger) btnHamburger.addEventListener('click', ()=>{ sidebar && sidebar.classList.contains('open') ? closeSidebar() : openSidebar(); });
+  if(sidebarOverlay) sidebarOverlay.addEventListener('click', closeSidebar);
+  if(sidebar){ sidebar.querySelectorAll('.nav-item').forEach(a=>{ a.addEventListener('click', closeSidebar); }); }
+
   const btn = $('btn-refresh');
   if(btn) btn.addEventListener('click', load);
 

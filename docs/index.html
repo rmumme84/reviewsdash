@@ -45,9 +45,20 @@
 
     .main { margin-left: var(--sidebar-w); flex: 1; display: flex; flex-direction: column; height: 100vh; overflow: hidden; }
 
-    /* iPhone: hide sidebar and use full width */
+    /* Mobile: sidebar como drawer (toggle via hamburger) */
+    .btn-hamburger { display: none; background: none; border: none; cursor: pointer; padding: 6px; color: var(--text-muted); line-height: 1; }
+    .sidebar-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.35); z-index: 99; }
+    @media (max-width: 768px){
+      .btn-hamburger { display: flex; align-items: center; }
+      .sidebar { transform: translateX(-100%); transition: transform 0.22s ease; }
+      .sidebar.open { transform: translateX(0); }
+      .sidebar-overlay.open { display: block; }
+      .main{ margin-left: 0; height:auto; overflow: visible; }
+      .topbar{ padding: 0 12px; position: sticky; top: 0; }
+      .content{ padding: 10px 10px; height:auto; overflow: visible; }
+      body{ min-height: auto; }
+    }
     @media (max-width: 520px){
-      .sidebar{ display:none; }
       .main{ margin-left: 0; height:auto; overflow: visible; }
       .topbar{ padding: 0 12px; position: sticky; top: 0; }
       .content{ padding: 10px 10px; height:auto; overflow: visible; }
@@ -252,7 +263,8 @@
   </style>
 </head>
 <body>
-  <aside class="sidebar">
+  <div class="sidebar-overlay" id="sidebarOverlay"></div>
+  <aside class="sidebar" id="sidebar">
     <div class="sidebar-logo">
       <div class="company-name">Rede D'Or<br/>São Luiz</div>
       <div class="ri-label">Reviews (Google)</div>
@@ -277,6 +289,9 @@
   <div class="main">
     <div class="topbar">
       <div class="topbar-left">
+        <button class="btn-hamburger" id="btnHamburger" aria-label="Menu" type="button">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+        </button>
         <span class="ticker-badge">REVIEWS</span>
         <span class="page-title">Painel de Reviews</span>
         <div class="seg">
@@ -302,10 +317,10 @@
         <div class="panel-grid">
         <div class="panel-left">
           <div class="kpi-grid" id="kpiGrid">
-            <div class="kpi-card"><div class="kpi-label">Ranking Geral</div><div class="kpi-value">—</div><div class="kpi-sub">carregando</div></div>
-            <div class="kpi-card"><div class="kpi-label">Média (7d)</div><div class="kpi-value">—</div><div class="kpi-sub">vs média geral</div></div>
-            <div class="kpi-card"><div class="kpi-label">Volume (7d)</div><div class="kpi-value">—</div><div class="kpi-sub">vs 7d anterior</div></div>
-            <div class="kpi-card" id="kpi15d"><div class="kpi-label">Média (15d)</div><div class="kpi-value">—</div><div class="kpi-sub">nota média no período</div></div>
+            <div class="kpi-card"><div class="kpi-label">Ranking Geral</div><div class="kpi-value" id="kpiRank">—</div><div class="kpi-sub">média ponderada rede</div></div>
+            <div class="kpi-card"><div class="kpi-label">Média (7d)</div><div class="kpi-value" id="kpiAvg7">—</div><div class="kpi-sub" id="kpiDelta">vs média geral</div></div>
+            <div class="kpi-card"><div class="kpi-label">Volume (7d)</div><div class="kpi-value" id="kpiVol7">—</div><div class="kpi-sub">vs 7d anterior</div></div>
+            <div class="kpi-card" id="kpi15d"><div class="kpi-label">Média (15d)</div><div class="kpi-value" id="kpiAvg15">—</div><div class="kpi-sub">nota média no período</div></div>
           </div>
 
           <div class="card evoCard" style="margin-top:8px;">
