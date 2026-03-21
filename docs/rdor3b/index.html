@@ -1,0 +1,562 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Painel do RI — RDOR3B</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display:ital@0;1&family=DM+Mono:wght@400;500&family=Sora:wght@300;400;500;600&display=swap" rel="stylesheet" />
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+  <style>
+    /* ── Variables ───────────────────────────────────────────────────────────── */
+    :root {
+      --bg : #F0F2F5;
+      --surface : #FFFFFF;
+      --border : #E1E4EC;
+      --text-primary: #0D1117;
+      --text-muted : #6B7280;
+      --text-light : #9CA3AF;
+      --brand : #0A2C6E;
+      --brand-light: #1A4FA0;
+      --accent : #0070F3;
+      --up : #059669;
+      --up-bg : #ECFDF5;
+      --down : #DC2626;
+      --down-bg : #FEF2F2;
+      --neutral : #6B7280;
+      --sidebar-w : 220px;
+      --mono : 'DM Mono', monospace;
+      --sans : 'Sora', sans-serif;
+      --serif : 'DM Serif Display', serif;
+    }
+
+    /* ── Reset ───────────────────────────────────────────────────────────────── */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    html { font-size: 14px; }
+    body { font-family: var(--sans); background: var(--bg); color: var(--text-primary); display: flex; min-height: 100vh; }
+
+    /* Sidebar: hidden by default (desktop), shows on hover */
+    .sidebarHotzone{ position: fixed; top:0; left:0; width: 14px; height:100vh; z-index: 101; }
+    .sidebar{ transform: translateX(calc(-1 * var(--sidebar-w))); transition: transform 160ms ease; }
+    .sidebarHotzone:hover + .sidebar,
+    .sidebar:hover{ transform: translateX(0); }
+    .main{ margin-left: 0; }
+
+    /* ── Sidebar ─────────────────────────────────────────────────────────────── */
+    .sidebar { width: var(--sidebar-w); min-height: 100vh; background: var(--brand); position: fixed; top: 0; left: 0; display: flex; flex-direction: column; z-index: 100; }
+    .sidebar-logo { padding: 24px 20px 20px; border-bottom: 1px solid rgba(255,255,255,0.1); }
+    .sidebar-logo .company-name { font-family: var(--serif); font-size: 1.25rem; color: #fff; line-height: 1.2; }
+    .sidebar-logo .ri-label { font-family: var(--mono); font-size: 0.65rem; color: rgba(255,255,255,0.5); letter-spacing: 0.15em; text-transform: uppercase; margin-top: 2px; }
+    .sidebar-nav { padding: 16px 0; flex: 1; }
+    .nav-section-label { font-family: var(--mono); font-size: 0.6rem; letter-spacing: 0.15em; text-transform: uppercase; color: rgba(255,255,255,0.35); padding: 16px 20px 6px; }
+    .nav-item { display: flex; align-items: center; gap: 10px; padding: 9px 20px; color: rgba(255,255,255,0.65); cursor: pointer; border-left: 3px solid transparent; transition: all 0.15s; font-size: 0.82rem; font-weight: 400; text-decoration: none; }
+    .nav-item:hover { background: rgba(255,255,255,0.07); color: #fff; }
+    .nav-item.active { background: rgba(255,255,255,0.1); border-left-color: #60A5FA; color: #fff; font-weight: 500; }
+    .nav-item svg { opacity: 0.8; flex-shrink: 0; }
+    .nav-item.active svg { opacity: 1; }
+    .sidebar-footer { padding: 16px 20px; border-top: 1px solid rgba(255,255,255,0.1); font-size: 0.7rem; color: rgba(255,255,255,0.3); font-family: var(--mono); }
+
+    /* ── Main layout ─────────────────────────────────────────────────────────── */
+    .main { margin-left: 0; flex: 1; display: flex; flex-direction: column; }
+
+    /* ── Embed mode (quando aberto dentro do painel principal) ──────────────── */
+    body.embedded .sidebar { display: none !important; }
+    body.embedded .main { margin-left: 0 !important; }
+    body.embedded { min-height: 100vh; }
+
+    /* ── Top bar ─────────────────────────────────────────────────────────────── */
+    .topbar { background: var(--surface); border-bottom: 1px solid var(--border); padding: 0 22px; height: 54px; display: flex; align-items: center; justify-content: space-between; position: sticky; top: 0; z-index: 50; }
+    .topbar-left { display: flex; align-items: baseline; gap: 12px; }
+    .ticker-badge { font-family: var(--mono); font-size: 0.72rem; font-weight: 500; background: var(--brand); color: #fff; padding: 3px 8px; border-radius: 4px; letter-spacing: 0.05em; }
+    .page-title { font-family: var(--serif); font-size: 1.1rem; color: var(--text-primary); }
+    .topbar-right { display: flex; align-items: center; gap: 20px; }
+    .price-hero { display: flex; align-items: baseline; gap: 8px; }
+    .price-value { font-family: var(--mono); font-size: 1.45rem; font-weight: 500; color: var(--text-primary); }
+    .price-change { font-family: var(--mono); font-size: 0.82rem; font-weight: 500; padding: 2px 7px; border-radius: 4px; }
+    .price-change.up { background: var(--up-bg); color: var(--up); }
+    .price-change.down { background: var(--down-bg); color: var(--down); }
+    .price-change.neu { background: #F3F4F6; color: var(--neutral); }
+    .status-dot { width: 7px; height: 7px; border-radius: 50%; background: #10B981; box-shadow: 0 0 0 3px rgba(16,185,129,0.2); animation: pulse 2s infinite; }
+    @keyframes pulse { 0%, 100% { box-shadow: 0 0 0 3px rgba(16,185,129,0.2); } 50% { box-shadow: 0 0 0 5px rgba(16,185,129,0.1); } }
+    .status-text { font-size: 0.7rem; color: var(--text-muted); font-family: var(--mono); }
+    .btn-refresh { display: flex; align-items: center; gap: 6px; background: none; border: 1px solid var(--border); border-radius: 6px; padding: 5px 12px; font-size: 0.75rem; color: var(--text-muted); cursor: pointer; font-family: var(--sans); transition: all 0.15s; }
+    .btn-refresh:hover { border-color: var(--accent); color: var(--accent); }
+    .btn-refresh.spinning svg { animation: spin 1s linear infinite; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* ── Content ─────────────────────────────────────────────────────────────── */
+    .content { padding: 12px 14px; display: flex; flex-direction: column; gap: 8px; animation: fadeIn 0.4s ease; }
+
+    /* ── Static dashboard grid (one-screen) ───────────────────────────────────── */
+    .panel-grid{ display:grid; grid-template-columns: 2.2fr 1.15fr 1.05fr; gap: 8px; align-items: stretch;
+      /* 1st row stretches; keep it slightly shorter to allow ticker */
+      grid-template-rows: minmax(390px, 1fr) auto;
+      grid-template-areas:
+        "left mid right"
+        "ind  ind  extra";
+    }
+    .panel-left{ display:flex; flex-direction:column; height:100%; }
+    .panel-left .kpi-grid{ flex: 0 0 auto; }
+    .panel-left .card.evoCard{ flex: 1 1 auto; display:flex; flex-direction:column; min-height:0; }
+    .panel-left .card.evoCard .card-body{ flex:1 1 auto; min-height:0; display:flex; flex-direction:column; }
+    /* Fill available space without blowing up */
+    .panel-left .card.evoCard .chart-wrap{ flex: 1 1 auto; height:auto; min-height: 220px; max-height: 360px; }
+
+    .panel-mid .card, .panel-right .card{ height:100%; display:flex; flex-direction:column; }
+    .panel-mid .card .card-body, .panel-right .card .card-body{ flex:1 1 auto; min-height:0; overflow:auto; }
+
+    .panel-left{ grid-area:left; min-width:0; }
+    .panel-mid{ grid-area:mid; min-width:0; }
+    .panel-right{ grid-area:right; min-width:0; }
+    .panel-ind{ grid-area:ind; min-width:0; }
+    .panel-extra{ grid-area:extra; min-width:0; }
+
+    @media (max-width: 980px){
+      .panel-grid{ grid-template-columns: 1fr; grid-template-areas: "left" "mid" "right" "ind" "extra"; }
+      .panel-left .card.evoCard .chart-wrap{ min-height: 220px; max-height: 320px; }
+    }
+    @keyframes fadeIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+
+    /* ── Cache indicator ─────────────────────────────────────────────────────── */
+    .cache-bar { display: flex; align-items: center; gap: 10px; font-family: var(--mono); font-size: 0.68rem; color: var(--text-light); }
+    .cache-progress-wrap { flex: 1; max-width: 160px; height: 3px; background: var(--border); border-radius: 2px; overflow: hidden; }
+    .cache-progress-fill { height: 100%; background: var(--accent); border-radius: 2px; transition: width 1s linear; }
+
+    /* Countdown visual */
+    .countdownWrap{ display:flex; flex-direction:column; gap:10px; }
+    .countdownTitle{ font-size:0.86rem; color: rgba(15,23,42,0.86); font-weight:700; }
+    .countdownSub{ color: var(--text-muted); font-size:0.74rem; }
+    .countdownGrid{ display:grid; grid-template-columns: repeat(4, minmax(0,1fr)); gap:8px; }
+    .cdBox{ background: rgba(148,163,184,0.10); border:1px solid rgba(148,163,184,0.22); border-radius:12px; padding:10px 8px; text-align:center; }
+    .cdNum{ font-family: var(--mono); font-size:1.25rem; font-weight:800; color: var(--brand); line-height:1; }
+    .cdLab{ margin-top:6px; font-family: var(--mono); font-size:0.62rem; letter-spacing:0.12em; text-transform:uppercase; color: rgba(107,114,128,0.92); }
+
+    /* ── KPI cards ───────────────────────────────────────────────────────────── */
+    .kpi-grid { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 8px; }
+    @media (max-width: 980px){ .kpi-grid{ grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+    @media (max-width: 1200px){ .kpi-grid{ grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+    @media (max-width: 520px){ .kpi-grid{ grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+
+    /* ── Pills / modal (small editor) ────────────────────────────────────────── */
+    .pill{ border:1px solid var(--border); background:#fff; color:var(--text-muted); padding:6px 10px; border-radius:999px; font-size:0.75rem; cursor:pointer; }
+    .pill:hover{ border-color: var(--accent); color: var(--accent); }
+    .pill.on{ background: var(--brand); border-color: var(--brand); color:#fff; }
+
+    .iconBtn{ border:1px solid var(--border); background:#fff; color:var(--text-muted); width:26px; height:26px; border-radius:8px; cursor:pointer; font-size:0.85rem; line-height:1; display:flex; align-items:center; justify-content:center; }
+    .iconBtn:hover{ border-color: var(--accent); color: var(--accent); }
+    .floatingEdit{ position:absolute; right:12px; bottom:12px; }
+
+    /* avoid horizontal overflow */
+    body{ overflow-x:hidden; }
+    .main, .content{ overflow-x:hidden; }
+
+    /* News ticker (telejornal band) */
+    /* NOTE: .content uses flex gap:8px; we cancel it here so there's zero space between the grid (Indicadores) and the ticker */
+    .newsTicker{ margin-top: -8px; border: 1px solid rgba(10,44,110,0.25); background: linear-gradient(90deg, var(--brand) 0%, #071b44 55%, var(--brand) 100%);
+      border-radius: 12px; padding: 8px 0; overflow:hidden; width:100%; box-shadow: 0 6px 18px rgba(0,0,0,0.08);
+    }
+    .newsTicker .track{ display:inline-block; white-space:nowrap; will-change:transform; animation: ticker 42s linear infinite;
+      font-family: var(--mono); font-size: 0.78rem; color: rgba(255,255,255,0.92);
+      transform: translateX(100%);
+    }
+    .newsTicker .track b{ color:#fff; }
+    .newsTicker .track:hover{ animation-play-state: paused; }
+    @keyframes ticker{ from{ transform: translateX(100%);} to{ transform: translateX(-100%);} }
+
+    .mkTableTight th, .mkTableTight td{ padding: 6px 8px; font-size: 0.74rem; }
+
+    /* Consensus table: keep default sizes; just ensure compact, single-line delta */
+    .consTable .name-cell{ overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+    .consUp{ font-family: var(--mono); font-size: 0.72rem; opacity: 0.92; white-space: nowrap; }
+    .mkTableTight td{ overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+    .mkTableTight tr.sepTop td{ border-top: 2px solid rgba(148,163,184,0.35); padding-top: 10px; }
+    .mkTableTight tr.sepTop td{ background: linear-gradient(180deg, rgba(148,163,184,0.06) 0%, rgba(255,255,255,0) 70%); }
+
+    /* separator only between last quarter and first YTD column (not between YTDs) */
+    .mkTableTight th.ytdSep, .mkTableTight td.ytdSep{ border-left: 2px solid rgba(148,163,184,0.35); }
+    /* remove the separator before %YoY (%YoY is no longer ytdSep); keep only before YTD columns */
+
+
+    .modalBackdrop{ position: fixed; inset: 0; background: rgba(0,0,0,0.28); z-index: 200; }
+    .modal{ position: fixed; left: 50%; top: 50%; transform: translate(-50%,-50%); width: calc(100vw - 22px); max-height: calc(100vh - 22px);
+      background: #fff; border: 1px solid var(--border); border-radius: 12px; z-index: 210; overflow: hidden;
+      box-shadow: 0 12px 40px rgba(0,0,0,0.22);
+    }
+    .modalHead{ display:flex; justify-content:space-between; align-items:flex-start; gap:12px; padding:14px 14px 10px; border-bottom:1px solid var(--border); }
+    .modalTitle{ font-family: var(--serif); font-size: 1rem; }
+    .modalSub{ margin-top:2px; color: var(--text-muted); font-size: 0.78rem; }
+    .modalX{ border:1px solid var(--border); background:#fff; width:32px; height:32px; border-radius:10px; cursor:pointer; font-size:1.2rem; line-height:1; color:var(--text-muted); }
+    .modalBody{ padding: 12px 14px 14px; overflow: auto; max-height: calc(100vh - 120px); }
+    body.modal-open{ overflow:hidden; }
+    /* iPhone: keep KPI cards on a single row (horizontal scroll) */
+    @media (max-width: 520px){
+      .kpi-grid{display:flex;flex-wrap:nowrap;gap:10px;overflow-x:auto;padding-bottom:6px;scroll-snap-type:x mandatory}
+      .kpi-card{min-width:170px;scroll-snap-align:start}
+    }
+    .kpi-card { background: linear-gradient(180deg, #ffffff 0%, #fbfdff 100%); border: 1px solid var(--border); border-radius: 12px; padding: 8px 8px; position: relative; overflow: hidden; transition: box-shadow 0.15s, transform 0.15s; min-height: 54px; }
+    .kpi-card:hover { box-shadow: 0 4px 16px rgba(0,0,0,0.06); transform: translateY(-1px); }
+    .kpi-label { font-size: 0.56rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 3px; line-height: 1.12; white-space: nowrap; overflow:hidden; text-overflow:ellipsis; }
+    .kpi-value { font-family: var(--mono); font-size: 1.02rem; font-weight: 700; color: var(--text-primary); line-height: 1.10; white-space: nowrap; overflow:hidden; text-overflow:ellipsis; }
+    .kpi-value.up { color: var(--up); }
+    .kpi-value.down { color: var(--down); }
+    .kpi-sub { font-size: 0.68rem; color: var(--text-muted); margin-top: 3px; }
+    .kpi-priceRow{ display:flex; align-items:baseline; justify-content:space-between; gap:10px; }
+    .kpi-delta{ font-family: var(--mono); font-size: 0.82rem; font-weight: 700; letter-spacing: -0.01em; }
+    .kpi-delta.up{ color: var(--up); }
+    .kpi-delta.down{ color: var(--down); }
+    .kpi-delta.neu{ color: var(--neutral); }
+
+    /* ── Two-col layout ──────────────────────────────────────────────────────── */
+    .two-col { display: grid; grid-template-columns: 1fr 380px; gap: 16px; align-items: start; }
+
+    /* ── Card ────────────────────────────────────────────────────────────────── */
+    .card { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; overflow: hidden; }
+    .card-header { display: flex; align-items: center; justify-content: space-between; padding: 10px 14px; border-bottom: 1px solid var(--border); }
+    .card-title { font-size: 0.8rem; font-weight: 600; color: var(--text-primary); letter-spacing: 0.02em; text-transform: uppercase; }
+    .card-body { padding: 10px 14px; }
+
+    /* ── Period tabs ─────────────────────────────────────────────────────────── */
+    .period-tabs { display: flex; gap: 2px; background: var(--bg); border-radius: 6px; padding: 2px; }
+    .period-tab { border: none; background: none; padding: 4px 10px; border-radius: 4px; font-size: 0.7rem; font-family: var(--mono); font-weight: 500; color: var(--text-muted); cursor: pointer; transition: all 0.12s; }
+    .period-tab.active, .period-tab:hover { background: var(--surface); color: var(--brand); box-shadow: 0 1px 4px rgba(0,0,0,0.08); }
+
+    /* ── Chart canvas ────────────────────────────────────────────────────────── */
+    .chart-wrap { position: relative; height: 210px; }
+    .chart-wrap canvas { display: block; }
+    /* evoAsOf removed */
+
+    /* ── Table ───────────────────────────────────────────────────────────────── */
+    table { width: 100%; border-collapse: collapse; font-size: 0.78rem; }
+    .mkTable th{position:sticky;top:0}
+    .mkTable td{white-space:nowrap}
+    .mkUp{color:var(--up);font-weight:600}
+    .mkDown{color:var(--down);font-weight:600}
+    .mkNeu{color:var(--neutral);font-weight:600}
+
+    th { font-size: 0.65rem; text-transform: uppercase; letter-spacing: 0.08em; color: var(--text-muted); font-weight: 500; text-align: left; padding: 6px 10px; border-bottom: 1px solid var(--border); background: #FAFAFA; }
+    td { padding: 8px 10px; border-bottom: 1px solid var(--border); font-family: var(--mono); font-size: 0.77rem; color: var(--text-primary); }
+    tr:last-child td { border-bottom: none; }
+    tr:hover td { background: #FAFBFD; }
+    td.name-cell { font-family: var(--sans); font-weight: 500; color: var(--text-primary); }
+    td.rec-buy { color: var(--up); font-weight: 600; }
+    td.rec-hold { color: #D97706; font-weight: 600; }
+    td.rec-sell { color: var(--down); font-weight: 600; }
+
+    /* ── Peer comparison ─────────────────────────────────────────────────────── */
+    .peer-row { display: grid; grid-template-columns: 90px 1fr 70px 70px; align-items: center; gap: 12px; padding: 7px 0; border-bottom: 1px solid var(--border); }
+    .peer-row:last-child { border-bottom: none; }
+    .peer-ticker { font-family: var(--mono); font-size: 0.77rem; font-weight: 500; }
+    .peer-bar-wrap { background: var(--bg); border-radius: 4px; height: 6px; overflow: hidden; }
+    .peer-bar { height: 100%; border-radius: 4px; background: var(--accent); }
+    .peer-ret { font-family: var(--mono); font-size: 0.77rem; text-align: right; }
+    .peer-ret.up { color: var(--up); }
+    .peer-ret.down { color: var(--down); }
+
+    /* ── Events ──────────────────────────────────────────────────────────────── */
+    .event-list { display: flex; flex-direction: column; gap: 10px; }
+    .event-item { display: flex; align-items: flex-start; gap: 12px; }
+    .event-date { flex-shrink: 0; text-align: center; background: var(--bg); border-radius: 6px; padding: 4px 10px; min-width: 56px; }
+    .event-date .day { font-family: var(--mono); font-size: 1.1rem; font-weight: 500; color: var(--brand); line-height: 1; }
+    .event-date .mon { font-size: 0.6rem; text-transform: uppercase; letter-spacing: 0.1em; color: var(--text-muted); }
+    .event-info .event-title { font-size: 0.8rem; font-weight: 500; }
+    .event-info .event-desc { font-size: 0.72rem; color: var(--text-muted); margin-top: 2px; }
+    .event-tag { display: inline-flex; align-items: center; font-size: 0.6rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.08em; padding: 2px 7px; border-radius: 10px; margin-top: 4px; }
+    .tag-result { background: #EFF6FF; color: #1D4ED8; }
+    .tag-dividend { background: #F0FDF4; color: #15803D; }
+    .tag-meeting { background: #FFF7ED; color: #C2410C; }
+    .tag-roadshow { background: #FAF5FF; color: #7E22CE; }
+
+    /* ── Loading / skeleton ──────────────────────────────────────────────────── */
+    .skeleton { background: linear-gradient(90deg, #E5E7EB 25%, #F3F4F6 50%, #E5E7EB 75%); background-size: 200% 100%; animation: shimmer 1.4s infinite; border-radius: 4px; }
+    @keyframes shimmer { to { background-position: -200% 0; } }
+
+    /* ── Source tag ──────────────────────────────────────────────────────────── */
+    .source-tag { display: inline-flex; align-items: center; gap: 4px; font-family: var(--mono); font-size: 0.62rem; color: var(--text-light); background: var(--bg); border-radius: 4px; padding: 2px 7px; }
+
+    /* ── Donut container ─────────────────────────────────────────────────────── */
+    .donut-wrap { position: relative; height: 160px; display: flex; align-items: center; justify-content: center; }
+
+    /* ── Legend ──────────────────────────────────────────────────────────────── */
+    .legend { display: flex; flex-wrap: wrap; gap: 8px 14px; margin-top: 8px; }
+    .legend-item { display: flex; align-items: center; gap: 5px; font-size: 0.72rem; color: var(--text-muted); }
+    .legend-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+
+    /* ── Fundamentals grid ───────────────────────────────────────────────────── */
+    .fund-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1px; background: var(--border); }
+    .fund-item { background: var(--surface); padding: 12px 14px; }
+    .fund-item-label { font-size: 0.65rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 4px; }
+    .fund-item-value { font-family: var(--mono); font-size: 1rem; font-weight: 500; }
+    .fund-item-vs { margin-top: 4px; display: flex; align-items: center; gap: 4px; }
+    .fund-item-bar { flex: 1; height: 3px; background: var(--bg); border-radius: 2px; overflow: hidden; }
+    .fund-item-bar-fill { height: 100%; border-radius: 2px; background: var(--accent); }
+    .fund-item-sector { font-size: 0.62rem; color: var(--text-muted); }
+
+    /* ── Consensus ───────────────────────────────────────────────────────────── */
+    .consensus-bar { display: flex; height: 8px; border-radius: 4px; overflow: hidden; margin: 8px 0 4px; }
+    .consensus-bar .c-buy { background: var(--up); }
+    .consensus-bar .c-hold { background: #F59E0B; }
+    .consensus-bar .c-sell { background: var(--down); }
+    .consensus-labels { display: flex; justify-content: space-between; font-family: var(--mono); font-size: 0.7rem; color: var(--text-muted); }
+    .tp-label { font-size: 0.72rem; color: var(--text-muted); }
+    .tp-value { font-family: var(--mono); font-size: 1.1rem; font-weight: 500; }
+
+    @media (max-width: 980px){
+      .two-col{grid-template-columns:1fr;}
+      .sidebar{display:none;}
+      .main{margin-left:0;}
+    }
+
+    /* ── Print ───────────────────────────────────────────────────────────────── */
+    @media print {
+      .sidebar, .topbar, .btn-refresh, .cache-bar, .period-tabs { display: none !important; }
+      .main { margin-left: 0; }
+      .two-col { grid-template-columns: 1fr !important; }
+      .card { box-shadow: none; border: 1px solid #ccc; }
+      body { background: #fff; }
+    }
+  </style>
+</head>
+<body>
+  <script>
+    // Se estiver dentro de um iframe, escondemos o menu lateral próprio do RI
+    // para que o acesso seja pelo menu do painel principal.
+    (function () {
+      try {
+        if (window.self !== window.top) {
+          document.body.classList.add('embedded');
+        }
+      } catch (e) {
+        // Em cenários com cross-origin, assume embedded.
+        document.body.classList.add('embedded');
+      }
+    })();
+  </script>
+
+  <!-- ── Sidebar ─────────────────────────────────────────────────────────── -->
+  <div class="sidebarHotzone" aria-hidden="true"></div>
+  <aside class="sidebar">
+    <nav class="sidebar-nav">
+      <div class="nav-section-label">Painéis</div>
+      <a class="nav-item active" href="/rdor3b/">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+        Painel do RI
+      </a>
+      <a class="nav-item" href="/reviewsdash/">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a4 4 0 0 1-4 4H7l-4 4V7a4 4 0 0 1 4-4h10a4 4 0 0 1 4 4z"/></svg>
+        Reviews
+      </a>
+    </nav>
+    <div class="sidebar-footer">
+      RDOR3 · B3 · BVMF<br/>
+      v0.1 · RI (best-effort)
+    </div>
+  </aside>
+
+  <!-- ── Main ────────────────────────────────────────────────────────────── -->
+  <div class="main">
+    <!-- Top bar -->
+    <div class="topbar">
+      <div class="topbar-left">
+        <span class="ticker-badge">RDOR3</span>
+        <span class="page-title">Painel do RI</span>
+      </div>
+      <div class="topbar-right">
+        <div class="price-hero">
+          <span class="price-value" id="price-main">—</span>
+          <span class="price-change neu" id="price-change-badge">—</span>
+        </div>
+        <div style="display:flex;align-items:center;gap:6px;">
+          <div class="status-dot" id="status-dot"></div>
+          <span class="status-text" id="status-text">Carregando…</span>
+        </div>
+        <button class="btn-refresh" id="btn-refresh" onclick="forceRefresh()">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/>
+          </svg>
+          Atualizar
+        </button>
+      </div>
+    </div>
+
+    <!-- Content -->
+    <div class="content">
+      <div class="panel-grid">
+        <!-- Left: KPIs + charts -->
+        <div class="panel-left">
+          <div class="kpi-grid" id="kpi-grid">
+            <div class="kpi-card"><div class="kpi-label">Preço Atual</div><div class="kpi-value skeleton" style="height:20px;width:80px">&nbsp;</div></div>
+            <div class="kpi-card"><div class="kpi-label">Variação Dia</div><div class="kpi-value skeleton" style="height:20px;width:60px">&nbsp;</div></div>
+            <div class="kpi-card"><div class="kpi-label">Volume (dia)</div><div class="kpi-value skeleton" style="height:20px;width:80px">&nbsp;</div></div>
+            <div class="kpi-card"><div class="kpi-label">P/L</div><div class="kpi-value skeleton" style="height:20px;width:50px">&nbsp;</div></div>
+            <div class="kpi-card"><div class="kpi-label">Div. Yield</div><div class="kpi-value skeleton" style="height:20px;width:60px">&nbsp;</div></div>
+            <div class="kpi-card" id="shortInterestCard">
+              <div class="kpi-label">Short Interest</div>
+              <div class="kpi-value" id="shortInterestValue">—</div>
+              <div class="kpi-sub" id="shortInterestSub">—</div>
+            </div>
+          </div>
+
+          <div class="card evoCard" style="margin-top:12px">
+            <div class="card-header">
+              <span class="card-title">Evolução</span>
+              <span class="source-tag">B3 (COTAHIST)</span>
+            </div>
+            <div class="card-body">
+              <div class="chart-wrap"><canvas id="price-chart"></canvas></div>
+            </div>
+          </div>
+
+        </div>
+
+        <!-- Bottom-left: Indicators -->
+        <div class="panel-ind">
+          <div class="card" style="height:100%">
+            <div class="card-body" style="padding-top:10px">
+              <div style="overflow:hidden">
+                <table class="mkTable mkTableTight" style="width:100%;table-layout:fixed" id="finTable">
+                  <thead id="finHead">
+                    <tr><th style="color:var(--text-muted)">Carregando…</th></tr>
+                  </thead>
+                  <tbody id="finBody">
+                    <tr><td style="color:var(--text-muted)">Carregando…</td></tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Bottom-right: reserved container -->
+        <div class="panel-extra">
+          <div class="card" style="height:100%">
+            <div class="card-header"><span class="card-title" id="earningsTitle">Próximo Resultado</span></div>
+            <div class="card-body">
+              <div id="earningsCountdown" class="countdownWrap">Carregando…</div>
+              <div style="margin-top:8px">
+                <span class="source-tag" id="earningsSource">RI / Calendário</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Middle: Market highlights -->
+        <div class="panel-mid">
+          <div class="card" style="height:100%">
+            <div class="card-header"><span class="card-title">Destaques</span></div>
+            <div class="card-body">
+              <div style="overflow-x:auto">
+                <table class="mkTable">
+                  <thead>
+                    <tr>
+                      <th>Ativo</th>
+                      <th style="text-align:right">Preço</th>
+                      <th style="text-align:right">Dia</th>
+                      <th style="text-align:right">Mês</th>
+                      <th style="text-align:right">Ano</th>
+                    </tr>
+                  </thead>
+                  <tbody id="marketTableBody">
+                    <tr><td class="name-cell">RDOR3</td><td colspan="4" style="color:var(--text-muted)">Carregando…</td></tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Right: Analyst consensus -->
+        <div class="panel-right">
+          <div class="card" style="height:100%">
+            <div class="card-header"><span class="card-title">Consenso</span></div>
+            <div class="card-body" style="position:relative;">
+              <div class="consensus-bar" id="consensus-bar" style="display:none">
+                <div class="c-buy" id="c-buy" style="width:0%"></div>
+                <div class="c-hold" id="c-hold" style="width:0%"></div>
+                <div class="c-sell" id="c-sell" style="width:0%"></div>
+              </div>
+              <div style="margin-top:0;padding-top:0">
+                <div style="margin-top:0">
+                  <table class="mkTable mkTableTight consTable" style="width:100%;table-layout:fixed">
+                    <thead>
+                      <tr>
+                        <th style="width:34%">Casa</th>
+                        <th style="width:12%">Rec.</th>
+                        <th style="width:34%;text-align:right">Alvo</th>
+                        <th style="width:20%;text-align:right">Data</th>
+                      </tr>
+                    </thead>
+                    <tbody id="houseBody">
+                      <tr><td colspan="4" style="color:var(--text-muted)">Carregando…</td></tr>
+                    </tbody>
+                    <tfoot id="houseFoot"></tfoot>
+                  </table>
+                </div>
+              </div>
+
+              <button class="iconBtn floatingEdit" id="btnEditHouse" type="button" title="Editar consenso por casa" aria-label="Editar consenso por casa">✎</button>
+
+              <!-- Modal editor: consenso por casa -->
+              <div class="modalBackdrop" id="houseModalBackdrop" style="display:none"></div>
+              <div class="modal" id="houseModal" style="display:none; max-width: 980px;">
+                <div class="modalHead">
+                  <div>
+                    <div class="modalTitle">Consenso por casa — editor</div>
+                    <div class="modalSub">Edite a base manualmente. Isso atualiza o dashboard.</div>
+                  </div>
+                  <button class="modalX" id="houseModalX" type="button">×</button>
+                </div>
+                <div class="modalBody">
+                  <div style="overflow-x:auto">
+                    <table class="mkTable" style="min-width:780px">
+                      <thead>
+                        <tr>
+                          <th>Casa</th>
+                          <th>Analista (opcional)</th>
+                          <th>Recomendação</th>
+                          <th style="text-align:right">Preço‑alvo</th>
+                          <th style="text-align:right">Data (YYYY-MM-DD)</th>
+                          <th>Último rating</th>
+                          <th></th>
+                        </tr>
+                      </thead>
+                      <tbody id="houseEditBody"></tbody>
+                    </table>
+                  </div>
+                  <div style="display:flex;gap:10px;justify-content:space-between;align-items:center;margin-top:10px">
+                    <button class="pill" id="houseAdd" type="button">+ adicionar linha</button>
+                    <div style="display:flex;gap:10px;align-items:center">
+                      <span id="houseSaveStatus" style="font-size:0.74rem;color:var(--text-muted)"></span>
+                      <button class="pill" id="houseCancel" type="button">Cancelar</button>
+                      <button class="pill on" id="houseSave" type="button">Salvar</button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- News ticker (must stay within the one-screen layout) -->
+      <div id="newsTicker" class="newsTicker" style="display:none"></div>
+
+      <div class="cache-bar" style="margin-top:10px;border-top:1px solid var(--border);padding-top:10px;justify-content:flex-start;flex-wrap:wrap">
+        <span>Dados: Google Finance</span>
+        <span>·</span>
+        <span id="cache-label">—</span>
+        <span>·</span>
+        <div class="cache-progress-wrap">
+          <div class="cache-progress-fill" id="cache-progress" style="width:100%"></div>
+        </div>
+        <span id="cache-ttl">próxima busca em —</span>
+        <span>·</span>
+        <span id="last-update">—</span>
+      </div>
+
+
+    </div><!-- /content -->
+  </div><!-- /main -->
+
+  <script src="/rdor3b/rdor3.js?v=25"></script>
+</body>
+</html>
