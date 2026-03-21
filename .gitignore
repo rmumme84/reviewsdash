@@ -1,0 +1,15 @@
+.env
+.env*
+keys/
+node_modules/
+__pycache__/
+backups/
+out/
+playwright_out/
+logs/
+memory/
+data/
+tmp/
+tmp_*
+*.bak
+*.bak.*

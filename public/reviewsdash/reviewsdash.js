@@ -2,6 +2,48 @@
  * Data source: /api/reviews/dash.json
  */
 
+
+// ===== FILTRO VP RAUL =====
+const RAUL_HOSPITALS = new Set([
+  // Bahia
+  'ChIJv_i5hBAWFgcRFPMZplzLMxo', // Hospital Aeroporto (Lauro de Freitas)
+  'ChIJsQVQioQ3FAcR9yNiH5zH6Xo', // Hospital Santa Emilia (Feira de Santana)
+  'ChIJQQAxfNkpv5QREiO0HcO6SMs', // Hospital Alianca
+  'ChIJF4fhdQAbFgcRj3pCb36NNrM', // Hospital Alianca Star
+  'ChIJt4y9LlkDFgcRA22cJ8Dj_Jg', // Hospital Cardio Pulmonar
+  // Distrito Federal
+  'ChIJQfFYbF0xWpMRxPo64DcvHz0', // Hospital DF Star
+  // Pernambuco
+  'ChIJV5epGWo9qwcR7oWtRRzSsLk', // Hospital Esperanca Olinda
+  'ChIJFy2kFcwZqwcRwdwbaUlS0z0', // Hospital Esperanca Recife
+  'ChIJCTjAeAAZqwcRCLzdWvoXXA0', // Hospital Memorial Star (Recife)
+  'ChIJHbgLuW4ZqwcRMFdmIDnyRgo', // Hospital Memorial Sao Jose
+  'ChIJhWC0bNvohpQRecL2kJ9GC3U', // Hospital Proncor
+  'ChIJ9yXx6p3ohpQRWcNs3BpPqfk', // Proncor - Unidade Intensiva Cardiorespiratoria
+]);
+let isRaulFilterActive = false;
+
+function applyRaulFilter(hospitals) {
+  if (!isRaulFilterActive) return hospitals;
+  return hospitals.filter(function(h) { return RAUL_HOSPITALS.has(h.placeId); });
+}
+
+function toggleRaulFilter() {
+  isRaulFilterActive = !isRaulFilterActive;
+  var btn = document.getElementById('btnRaulFilter');
+  if (btn) {
+    btn.style.background = isRaulFilterActive ? 'rgba(99,102,241,0.12)' : '';
+    btn.style.color = isRaulFilterActive ? 'var(--accent,#6366f1)' : '';
+    btn.style.borderColor = isRaulFilterActive ? 'rgba(99,102,241,0.5)' : '';
+    btn.title = isRaulFilterActive ? 'Filtro VP Raul ATIVO - clique para desativar' : 'Filtrar hospitais VP Raul (Bahia, DF, PE)';
+  }
+  // Destruir charts para forçar recriação com dados do subset correto
+  if (typeof chart !== 'undefined' && chart) { try { chart.destroy(); } catch(e){} chart = null; }
+  if (typeof typhoonChart !== 'undefined' && typhoonChart) { try { typhoonChart.destroy(); } catch(e){} typhoonChart = null; }
+  load();
+}
+// ===== FIM FILTRO VP RAUL =====
+
 let chart;
 let typhoonChart;
 
@@ -164,7 +206,7 @@ REVIEWS NEGATIVOS (amostra):
 ${sample.neg.map(x=>`- (${x.rating}★) ${x.text}`).join('\n')}`;
 
   try{
-    const ai = await fetch('/api/ai/openai', {
+    const ai = await fetch('/api/reviews/report90.json', {
       method:'POST',
       headers:{'content-type':'application/json'},
       body: JSON.stringify({ prompt })
@@ -222,12 +264,13 @@ function flattenHospitals(payload, nameMap){
 
 function computeAll(hospitals){
   const all=[];
+  const seen = new Set();
   for(const h of hospitals){
     for(const r of (h.reviews||[])){
       const rating = Number(r.rating);
       const iso = parseReviewISO(r);
       if(!iso) continue;
-      all.push({
+      const item = {
         hospital: h.name,
         placeId: h.placeId,
         hospitalRating: (h.rating!=null && Number.isFinite(Number(h.rating))) ? Number(h.rating) : null,
@@ -236,7 +279,14 @@ function computeAll(hospitals){
         rating: Number.isFinite(rating)?rating:null,
         text: r.text || r.original_text || '',
         iso,
-      });
+        rawId: r.rawId || null,
+      };
+      const key = item.rawId
+        ? `${item.placeId||''}|${item.rawId}`
+        : `${item.placeId||''}|${item.author||''}|${item.rating||''}|${String(item.text||'').replace(/\s+/g,' ').trim().slice(0,240)}`;
+      if(seen.has(key)) continue;
+      seen.add(key);
+      all.push(item);
     }
   }
   all.sort((a,b)=> (a.iso<b.iso?-1:1));
@@ -597,13 +647,18 @@ function computeKPIs(all){
   // média 7d e variação vs 7d anterior
   const all7 = lastNDays(all, 7).filter(r=>r.rating!=null);
   const all14 = lastNDays(all, 14).filter(r=>r.rating!=null);
+  const all15 = lastNDays(all, 15).filter(r=>r.rating!=null);
   const cut = new Date(Date.now() - 7*24*3600*1000);
   const prev7 = all14.filter(x=> new Date(x.iso) < cut);
 
   const avg7 = all7.length ? (all7.reduce((s,r)=>s+r.rating,0)/all7.length) : null;
+  const avg15 = all15.length ? (all15.reduce((s,r)=>s+r.rating,0)/all15.length) : null;
   const avgPrev7 = prev7.length ? (prev7.reduce((s,r)=>s+r.rating,0)/prev7.length) : null;
   // delta vs ranking geral (baseline)
   const delta7 = (avg7!=null && baseline!=null) ? (avg7-baseline) : null;
+
+  // rankText: formatted baseline for display
+  const rankText = (baseline!=null && Number.isFinite(baseline)) ? ('★' + fmt(baseline, 2)) : null;
 
   // movers (hospital)
   const movers = computeMovers(all);
@@ -615,7 +670,7 @@ function computeKPIs(all){
   const vPrev = prev7.length;
   const vDelta = vPrev ? ((v7/vPrev - 1)*100) : null;
 
-  return { baseline, avg7, avgPrev7, delta7, topMove, worstMove, v7, vPrev, vDelta };
+  return { baseline, rankText, avg7, avg15, avgPrev7, delta7, topMove, worstMove, v7, vPrev, vDelta };
 }
 
 function computeS3S4_90d(all){
@@ -711,1646 +766,6 @@ function computeS3S4_90d(all){
   return out;
 }
 
-function renderReport90(all){
-  const el = document.getElementById('report90');
-  if(!el){ dbg('renderTyphoon_noEl', true); return; }
-
-  const rows = computeS3S4_90d(all);
-  const s4 = rows.filter(x=>x.sev==='S4');
-  const s3 = rows.filter(x=>x.sev==='S3');
-
-  // concentration
-  const by = new Map();
-  for(const r of rows){
-    const k = r.hospital || '—';
-    const cur = by.get(k) || {S4:0,S3:0};
-    cur[r.sev] = (cur[r.sev]||0) + 1;
-    by.set(k, cur);
-  }
-  const rank = Array.from(by.entries()).sort((a,b)=>{
-    const sa = (a[1].S4*1000 + a[1].S3);
-    const sb = (b[1].S4*1000 + b[1].S3);
-    if(sa!==sb) return sb-sa;
-    return a[0].localeCompare(b[0]);
-  });
-
-  function topHospTable(limit=12){
-    const rows = rank.slice(0,limit);
-    if(!rows.length) return '<div class="meta">—</div>';
-    return `
-      <table>
-        <thead><tr><th>Hospital</th><th style="text-align:right">S4</th><th style="text-align:right">S3</th></tr></thead>
-        <tbody>
-          ${rows.map(([h,c])=>`<tr><td title="${esc(h)}">${esc(h)}</td><td style="text-align:right">${c.S4||0}</td><td style="text-align:right">${c.S3||0}</td></tr>`).join('')}
-        </tbody>
-      </table>
-    `;
-  }
-
-  function caseBlock(x, idx){
-    const id = `${x.sev}-${String(idx).padStart(2,'0')}`;
-    const tg = (x.tags && x.tags.length) ? x.tags.join(', ') : '—';
-    const who = x.author ? ` · ${esc(x.author)}` : '';
-    const head = `${id} · ${esc(x.dtTxt)} · ${esc(String(x.rating))}★`;
-    const sub = `${esc(x.hospital||'—')}${who} · tags: ${esc(tg)}`;
-    return `
-      <div class="caseOpen">
-        <div class="caseHeadRow">
-          <div class="caseLeft">
-            <div class="caseTitle">${head}</div>
-            <div class="caseSub">${sub}</div>
-          </div>
-          <div class="caseMeta">
-            <span class="badge ${x.sev==='S4'?'s4':'s3'}">${esc(x.sev)}</span>
-          </div>
-        </div>
-        <div class="caseText"><pre>${esc(x.text||'')}</pre></div>
-      </div>
-    `;
-  }
-
-  const html = `
-    <div class="reportGrid">
-      <div class="reportCard">
-        <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
-          <span class="badge s4">S4: <b>${s4.length}</b></span>
-          <span class="badge s3">S3: <b>${s3.length}</b></span>
-          <span class="badge">Total: <b>${rows.length}</b></span>
-        </div>
-        <div style="margin-top:10px; font-size:0.86rem; color: rgba(15,23,42,0.86); line-height:1.28rem;">
-          <div style="font-family:var(--mono);font-size:0.68rem;color:var(--text-muted);letter-spacing:0.06em">CONCEITO (BEST‑EFFORT)</div>
-          <div style="margin-top:6px">
-            <b>S4</b> = sinal de risco extremo (ex.: óbito/morte, sepse, erro grave, agressão/abuso, parada), priorizado para atenção imediata.<br/>
-            <b>S3</b> = risco alto / falha assistencial percebida (ex.: infecção, negligência/descaso, gestante/bebê, queda/fratura, sangramento, diagnóstico errado/tardio).<br/>
-            Classificação automática por palavras‑chave em reviews 1–2★; pode ter falso‑positivo/falso‑negativo.
-          </div>
-        </div>
-      </div>
-
-      <div class="reportCard">
-        <div style="font-family:var(--mono);font-size:0.68rem;color:var(--text-muted);letter-spacing:0.06em">CONCENTRAÇÃO (TOP)</div>
-        <div style="margin-top:8px">${topHospTable(10)}</div>
-      </div>
-    </div>
-
-    <h2 style="margin-top:14px">Casos S4 — texto completo</h2>
-    ${s4.length ? s4.map((x,i)=>caseBlock(x,i+1)).join('') : '<div class="meta">Nenhum S4 no período.</div>'}
-
-    <h2 style="margin-top:14px">Casos S3 — texto completo</h2>
-    ${s3.length ? s3.map((x,i)=>caseBlock(x,i+1)).join('') : '<div class="meta">Nenhum S3 no período.</div>'}
-  `;
-
-  el.innerHTML = html;
-
-  // store plain text for copy
-  window.__report90_text = buildReport90Text(rows, rank);
-}
-
-/* buildReport90Telegram removed: sharing via file download works better than paste formatting */
-
-function buildReport90Telegram(rows, rank){
-  const s4 = rows.filter(x=>x.sev==='S4');
-  const s3 = rows.filter(x=>x.sev==='S3');
-
-  const lines=[];
-  lines.push('RELATÓRIO 90D — REVIEWS CRÍTICOS');
-  lines.push(`S4: ${s4.length} | S3: ${s3.length} | Total: ${rows.length}`);
-  lines.push('');
-
-  // Top concentration
-  if(rank && rank.length){
-    lines.push('CONCENTRAÇÃO (TOP)');
-    rank.slice(0,10).forEach(([h,c])=>{
-      lines.push(`• ${h} — S4 ${c.S4||0} | S3 ${c.S3||0}`);
-    });
-    lines.push('');
-  }
-
-  function caseLines(x, idx){
-    const id = `${x.sev}-${String(idx).padStart(2,'0')}`;
-    const who = x.author ? ` — ${x.author}` : '';
-    const tg = (x.tags && x.tags.length) ? x.tags.join(', ') : '—';
-    lines.push('────────────────────────');
-    lines.push(`${id} · ${x.dtTxt} · ${x.rating}★`);
-    lines.push(`${x.hospital}${who}`);
-    lines.push(`tags: ${tg}`);
-    lines.push('');
-    lines.push(x.text || '');
-    lines.push('');
-  }
-
-  lines.push('S4 — TEXTO COMPLETO');
-  if(!s4.length) lines.push('Nenhum S4 no período.\n');
-  s4.forEach((x,i)=>caseLines(x,i+1));
-
-  lines.push('S3 — TEXTO COMPLETO');
-  if(!s3.length) lines.push('Nenhum S3 no período.\n');
-  s3.forEach((x,i)=>caseLines(x,i+1));
-
-  return lines.join('\n');
-}
-
-function buildReport90Text(rows, rank){
-  const s4 = rows.filter(x=>x.sev==='S4');
-  const s3 = rows.filter(x=>x.sev==='S3');
-  const lines=[];
-  lines.push('Relatório Executivo — Reviews Críticos (S3/S4) — últimos 90 dias');
-  lines.push('');
-  lines.push(`Resumo: S4 ${s4.length} | S3 ${s3.length} | Total ${rows.length}`);
-  lines.push('');
-  lines.push('Concentração por unidade:');
-  for(const [h,c] of rank){
-    lines.push(`- ${h}: S4 ${c.S4||0} | S3 ${c.S3||0}`);
-  }
-  lines.push('');
-  lines.push('S4 — texto completo');
-  s4.forEach((x,i)=>{
-    lines.push('');
-    lines.push(`${x.sev}-${String(i+1).padStart(2,'0')} · ${x.dtTxt} · ${x.rating}★ · ${x.hospital}${x.author?(' — '+x.author):''}`);
-    lines.push(`tags: ${(x.tags&&x.tags.length)?x.tags.join(', '):'—'}`);
-    lines.push(x.text||'');
-  });
-  lines.push('');
-  lines.push('S3 — texto completo');
-  s3.forEach((x,i)=>{
-    lines.push('');
-    lines.push(`${x.sev}-${String(i+1).padStart(2,'0')} · ${x.dtTxt} · ${x.rating}★ · ${x.hospital}${x.author?(' — '+x.author):''}`);
-    lines.push(`tags: ${(x.tags&&x.tags.length)?x.tags.join(', '):'—'}`);
-    lines.push(x.text||'');
-  });
-  return lines.join('\n');
-}
-
-async function render(all, payloadKpis, payloadTrend15){
-  dbg('render_start', { all: all?.length || 0 });
-  const topicsBox = $('topicsBox');
-  const moversBox = $('moversBox');
-  const commentsBox = $('commentsBox');
-  const statusEl = $('status-text');
-  const rankEl = $('kpiRank');
-  const avg7El = $('kpiAvg7');
-  const vol7El = $('kpiVol7');
-  const avg15El = $('kpiAvg15');
-  const deltaEl = $('kpiDelta');
-
-  try{
-    const k = computeKPIs(all);
-    if(rankEl) rankEl.textContent = k.rankText || '—';
-    if(avg7El) avg7El.textContent = Number.isFinite(k.avg7) ? ('★' + fmt(k.avg7,2)) : '—';
-    if(vol7El) vol7El.textContent = Number.isFinite(k.v7) ? String(k.v7) : '—';
-    if(avg15El) avg15El.textContent = Number.isFinite(k.avg15) ? ('★' + fmt(k.avg15,2)) : '—';
-    if(deltaEl) deltaEl.textContent = Number.isFinite(k.avg7) && Number.isFinite(k.baseline) ? ((k.avg7-k.baseline)>=0?'+':'') + fmt(k.avg7-k.baseline,2) : '—';
-    if(statusEl) statusEl.textContent = 'Atualizado ' + new Date().toLocaleTimeString('pt-BR');
-  }catch(e){ dbg('kpi_err', String(e)); }
-
-  try{
-    const all7 = lastNDays(all, 7);
-    const topics = computeTopics(all7);
-    const pos = Array.isArray(topics && topics.pos) ? topics.pos : [];
-    const neg = Array.isArray(topics && topics.neg) ? topics.neg : [];
-    if(topicsBox) topicsBox.innerHTML = '<div class="topics-grid"><div><div class="section-title">PRINCIPAIS MOTIVOS — POSITIVOS</div>'
-      + (pos.length ? pos.slice(0,5).map(x => '<div class="topic-row"><span>' + esc(x.motivo || x.text || '—') + '</span><b>' + esc(x.n != null ? x.n : (x.count != null ? x.count : '')) + '</b></div>').join('') : '<div class="placeholder">Sem dados disponíveis</div>')
-      + '</div><div><div class="section-title">PRINCIPAIS MOTIVOS — NEGATIVOS</div>'
-      + (neg.length ? neg.slice(0,5).map(x => '<div class="topic-row"><span>' + esc(x.motivo || x.text || '—') + '</span><b>' + esc(x.n != null ? x.n : (x.count != null ? x.count : '')) + '</b></div>').join('') : '<div class="placeholder">Sem dados disponíveis</div>')
-      + '</div></div>';
-  }catch(e){
-    if(topicsBox) topicsBox.innerHTML = '<div class="placeholder">Sem dados disponíveis</div>';
-  }
-
-  try{
-    const movers = computeMovers(all);
-    const up = Array.isArray(movers && movers.up) ? movers.up.slice(0,5) : [];
-    const down = Array.isArray(movers && movers.down) ? movers.down.slice(0,5) : [];
-    const rowsHtml = arr => arr.map(x => '<tr><td>' + esc(x.hospital || '—') + '</td><td>' + fmt(x.avg7,2) + '★</td><td>' + fmt(x.avgHist,2) + '★</td><td>' + (x.vol7d || 0) + '</td></tr>').join('') || '<tr><td colspan="4">—</td></tr>';
-    if(moversBox) moversBox.innerHTML = '<div class="section-title">TOP 5 MELHORAS</div><table><thead><tr><th>HOSPITAL</th><th>7D</th><th>HIST</th><th>VOL7D</th></tr></thead><tbody>' + rowsHtml(up) + '</tbody></table>'
-      + '<div class="section-title" style="margin-top:10px">TOP 5 QUEDAS</div><table><thead><tr><th>HOSPITAL</th><th>7D</th><th>HIST</th><th>VOL7D</th></tr></thead><tbody>' + rowsHtml(down) + '</tbody></table>';
-  }catch(e){
-    if(moversBox) moversBox.innerHTML = '<div class="placeholder">Sem dados disponíveis</div>';
-  }
-
-  try{
-    const rows7 = lastNDays(all, 7).slice(-18).reverse();
-    const posRows = rows7.filter(r => Number(r.rating) >= 4).slice(0,9);
-    const negRows = rows7.filter(r => Number(r.rating) <= 2).slice(0,9);
-    const posHtml = posRows.length ? posRows.map(r => '<div class="comment-card"><b>' + esc(r.hospital || '—') + '</b><div>' + '★★★★★'.slice(0, Math.max(0, Math.min(5, Math.round(Number(r.rating) || 0)))) + '</div><div>' + esc(r.author || '') + '</div><div>' + esc(r.text || '') + '</div></div>').join('') : '<div class="placeholder">Sem dados disponíveis</div>';
-    const negHtml = negRows.length ? negRows.map(r => '<div class="comment-card"><b>' + esc(r.hospital || '—') + '</b><div>' + '★'.repeat(Math.max(1, Math.min(5, Math.round(Number(r.rating) || 1)))) + '</div><div>' + esc(r.author || '') + '</div><div>' + esc(r.text || '') + '</div></div>').join('') : '<div class="placeholder">Sem dados disponíveis</div>';
-    if(commentsBox) commentsBox.innerHTML = '<div class="section-title">POSITIVOS</div>' + posHtml + '<div class="section-title" style="margin-top:10px">NEGATIVOS</div>' + negHtml;
-  }catch(e){
-    if(commentsBox) commentsBox.innerHTML = '<div class="placeholder">Sem dados disponíveis</div>';
-  }
-
-  return computeKPIs(all);
-}
-function renderReport90(all){
-  const el = document.getElementById('report90');
-  if(!el){ dbg('renderTyphoon_noEl', true); return; }
-
-  const rows = computeS3S4_90d(all);
-  const s4 = rows.filter(x=>x.sev==='S4');
-  const s3 = rows.filter(x=>x.sev==='S3');
-
-  // concentration
-  const by = new Map();
-  for(const r of rows){
-    const k = r.hospital || '—';
-    const cur = by.get(k) || {S4:0,S3:0};
-    cur[r.sev] = (cur[r.sev]||0) + 1;
-    by.set(k, cur);
-  }
-  const rank = Array.from(by.entries()).sort((a,b)=>{
-    const sa = (a[1].S4*1000 + a[1].S3);
-    const sb = (b[1].S4*1000 + b[1].S3);
-    if(sa!==sb) return sb-sa;
-    return a[0].localeCompare(b[0]);
-  });
-
-  function topHospTable(limit=12){
-    const rows = rank.slice(0,limit);
-    if(!rows.length) return '<div class="meta">—</div>';
-    return `
-      <table>
-        <thead><tr><th>Hospital</th><th style="text-align:right">S4</th><th style="text-align:right">S3</th></tr></thead>
-        <tbody>
-          ${rows.map(([h,c])=>`<tr><td title="${esc(h)}">${esc(h)}</td><td style="text-align:right">${c.S4||0}</td><td style="text-align:right">${c.S3||0}</td></tr>`).join('')}
-        </tbody>
-      </table>
-    `;
-  }
-
-  function caseBlock(x, idx){
-    const id = `${x.sev}-${String(idx).padStart(2,'0')}`;
-    const tg = (x.tags && x.tags.length) ? x.tags.join(', ') : '—';
-    const who = x.author ? ` · ${esc(x.author)}` : '';
-    const head = `${id} · ${esc(x.dtTxt)} · ${esc(String(x.rating))}★`;
-    const sub = `${esc(x.hospital||'—')}${who} · tags: ${esc(tg)}`;
-    return `
-      <div class="caseOpen">
-        <div class="caseHeadRow">
-          <div class="caseLeft">
-            <div class="caseTitle">${head}</div>
-            <div class="caseSub">${sub}</div>
-          </div>
-          <div class="caseMeta">
-            <span class="badge ${x.sev==='S4'?'s4':'s3'}">${esc(x.sev)}</span>
-          </div>
-        </div>
-        <div class="caseText"><pre>${esc(x.text||'')}</pre></div>
-      </div>
-    `;
-  }
-
-  const html = `
-    <div class="reportGrid">
-      <div class="reportCard">
-        <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
-          <span class="badge s4">S4: <b>${s4.length}</b></span>
-          <span class="badge s3">S3: <b>${s3.length}</b></span>
-          <span class="badge">Total: <b>${rows.length}</b></span>
-        </div>
-        <div style="margin-top:10px; font-size:0.86rem; color: rgba(15,23,42,0.86); line-height:1.28rem;">
-          <div style="font-family:var(--mono);font-size:0.68rem;color:var(--text-muted);letter-spacing:0.06em">CONCEITO (BEST‑EFFORT)</div>
-          <div style="margin-top:6px">
-            <b>S4</b> = sinal de risco extremo (ex.: óbito/morte, sepse, erro grave, agressão/abuso, parada), priorizado para atenção imediata.<br/>
-            <b>S3</b> = risco alto / falha assistencial percebida (ex.: infecção, negligência/descaso, gestante/bebê, queda/fratura, sangramento, diagnóstico errado/tardio).<br/>
-            Classificação automática por palavras‑chave em reviews 1–2★; pode ter falso‑positivo/falso‑negativo.
-          </div>
-        </div>
-      </div>
-
-      <div class="reportCard">
-        <div style="font-family:var(--mono);font-size:0.68rem;color:var(--text-muted);letter-spacing:0.06em">CONCENTRAÇÃO (TOP)</div>
-        <div style="margin-top:8px">${topHospTable(10)}</div>
-      </div>
-    </div>
-
-    <h2 style="margin-top:14px">Casos S4 — texto completo</h2>
-    ${s4.length ? s4.map((x,i)=>caseBlock(x,i+1)).join('') : '<div class="meta">Nenhum S4 no período.</div>'}
-
-    <h2 style="margin-top:14px">Casos S3 — texto completo</h2>
-    ${s3.length ? s3.map((x,i)=>caseBlock(x,i+1)).join('') : '<div class="meta">Nenhum S3 no período.</div>'}
-  `;
-
-  el.innerHTML = html;
-
-  // store plain text for copy
-  window.__report90_text = buildReport90Text(rows, rank);
-}
-
-/* buildReport90Telegram removed: sharing via file download works better than paste formatting */
-
-function buildReport90Telegram(rows, rank){
-  const s4 = rows.filter(x=>x.sev==='S4');
-  const s3 = rows.filter(x=>x.sev==='S3');
-
-  const lines=[];
-  lines.push('RELATÓRIO 90D — REVIEWS CRÍTICOS');
-  lines.push(`S4: ${s4.length} | S3: ${s3.length} | Total: ${rows.length}`);
-  lines.push('');
-
-  // Top concentration
-  if(rank && rank.length){
-    lines.push('CONCENTRAÇÃO (TOP)');
-    rank.slice(0,10).forEach(([h,c])=>{
-      lines.push(`• ${h} — S4 ${c.S4||0} | S3 ${c.S3||0}`);
-    });
-    lines.push('');
-  }
-
-  function caseLines(x, idx){
-    const id = `${x.sev}-${String(idx).padStart(2,'0')}`;
-    const who = x.author ? ` — ${x.author}` : '';
-    const tg = (x.tags && x.tags.length) ? x.tags.join(', ') : '—';
-    lines.push('────────────────────────');
-    lines.push(`${id} · ${x.dtTxt} · ${x.rating}★`);
-    lines.push(`${x.hospital}${who}`);
-    lines.push(`tags: ${tg}`);
-    lines.push('');
-    lines.push(x.text || '');
-    lines.push('');
-  }
-
-  lines.push('S4 — TEXTO COMPLETO');
-  if(!s4.length) lines.push('Nenhum S4 no período.\n');
-  s4.forEach((x,i)=>caseLines(x,i+1));
-
-  lines.push('S3 — TEXTO COMPLETO');
-  if(!s3.length) lines.push('Nenhum S3 no período.\n');
-  s3.forEach((x,i)=>caseLines(x,i+1));
-
-  return lines.join('\n');
-}
-
-function buildReport90Text(rows, rank){
-  const s4 = rows.filter(x=>x.sev==='S4');
-  const s3 = rows.filter(x=>x.sev==='S3');
-  const lines=[];
-  lines.push('Relatório Executivo — Reviews Críticos (S3/S4) — últimos 90 dias');
-  lines.push('');
-  lines.push(`Resumo: S4 ${s4.length} | S3 ${s3.length} | Total ${rows.length}`);
-  lines.push('');
-  lines.push('Concentração por unidade:');
-  for(const [h,c] of rank){
-    lines.push(`- ${h}: S4 ${c.S4||0} | S3 ${c.S3||0}`);
-  }
-  lines.push('');
-  lines.push('S4 — texto completo');
-  s4.forEach((x,i)=>{
-    lines.push('');
-    lines.push(`${x.sev}-${String(i+1).padStart(2,'0')} · ${x.dtTxt} · ${x.rating}★ · ${x.hospital}${x.author?(' — '+x.author):''}`);
-    lines.push(`tags: ${(x.tags&&x.tags.length)?x.tags.join(', '):'—'}`);
-    lines.push(x.text||'');
-  });
-  lines.push('');
-  lines.push('S3 — texto completo');
-  s3.forEach((x,i)=>{
-    lines.push('');
-    lines.push(`${x.sev}-${String(i+1).padStart(2,'0')} · ${x.dtTxt} · ${x.rating}★ · ${x.hospital}${x.author?(' — '+x.author):''}`);
-    lines.push(`tags: ${(x.tags&&x.tags.length)?x.tags.join(', '):'—'}`);
-    lines.push(x.text||'');
-  });
-  return lines.join('\n');
-}
-
-async function render(all, payloadKpis, payloadTrend15){
-  dbg('render_start', { all: all?.length || 0 });
-  const topicsBox = $('topicsBox');
-  const moversBox = $('moversBox');
-  const commentsBox = $('commentsBox');
-  const statusEl = $('status-text');
-  const rankEl = $('kpiRank');
-  const avg7El = $('kpiAvg7');
-  const vol7El = $('kpiVol7');
-  const avg15El = $('kpiAvg15');
-  const deltaEl = $('kpiDelta');
-
-  try{
-    const k = computeKPIs(all);
-    if(rankEl) rankEl.textContent = k.rankText || '—';
-    if(avg7El) avg7El.textContent = Number.isFinite(k.avg7) ? ('★' + fmt(k.avg7,2)) : '—';
-    if(vol7El) vol7El.textContent = Number.isFinite(k.v7) ? String(k.v7) : '—';
-    if(avg15El) avg15El.textContent = Number.isFinite(k.avg15) ? ('★' + fmt(k.avg15,2)) : '—';
-    if(deltaEl) deltaEl.textContent = Number.isFinite(k.avg7) && Number.isFinite(k.baseline) ? ((k.avg7-k.baseline)>=0?'+':'') + fmt(k.avg7-k.baseline,2) : '—';
-    if(statusEl) statusEl.textContent = 'Atualizado ' + new Date().toLocaleTimeString('pt-BR');
-    dbg('kpi_done', true);
-  }catch(e){ dbg('kpi_err', String(e)); }
-
-  const simpleTopics = '<div class="placeholder">Painel carregado</div>';
-  if(topicsBox) topicsBox.innerHTML = simpleTopics;
-  if(moversBox) moversBox.innerHTML = '<div class="placeholder">Painel carregado</div>';
-  if(commentsBox) commentsBox.innerHTML = '<div class="placeholder">Painel carregado</div>';
-
-  dbg('dom_written', {
-    topics: !!topicsBox,
-    movers: !!moversBox,
-    comments: !!commentsBox,
-    status: !!statusEl,
-  });
-  return computeKPIs(all);
-}
-function renderReport90(all){
-  const el = document.getElementById('report90');
-  if(!el){ dbg('renderTyphoon_noEl', true); return; }
-
-  const rows = computeS3S4_90d(all);
-  const s4 = rows.filter(x=>x.sev==='S4');
-  const s3 = rows.filter(x=>x.sev==='S3');
-
-  // concentration
-  const by = new Map();
-  for(const r of rows){
-    const k = r.hospital || '—';
-    const cur = by.get(k) || {S4:0,S3:0};
-    cur[r.sev] = (cur[r.sev]||0) + 1;
-    by.set(k, cur);
-  }
-  const rank = Array.from(by.entries()).sort((a,b)=>{
-    const sa = (a[1].S4*1000 + a[1].S3);
-    const sb = (b[1].S4*1000 + b[1].S3);
-    if(sa!==sb) return sb-sa;
-    return a[0].localeCompare(b[0]);
-  });
-
-  function topHospTable(limit=12){
-    const rows = rank.slice(0,limit);
-    if(!rows.length) return '<div class="meta">—</div>';
-    return `
-      <table>
-        <thead><tr><th>Hospital</th><th style="text-align:right">S4</th><th style="text-align:right">S3</th></tr></thead>
-        <tbody>
-          ${rows.map(([h,c])=>`<tr><td title="${esc(h)}">${esc(h)}</td><td style="text-align:right">${c.S4||0}</td><td style="text-align:right">${c.S3||0}</td></tr>`).join('')}
-        </tbody>
-      </table>
-    `;
-  }
-
-  function caseBlock(x, idx){
-    const id = `${x.sev}-${String(idx).padStart(2,'0')}`;
-    const tg = (x.tags && x.tags.length) ? x.tags.join(', ') : '—';
-    const who = x.author ? ` · ${esc(x.author)}` : '';
-    const head = `${id} · ${esc(x.dtTxt)} · ${esc(String(x.rating))}★`;
-    const sub = `${esc(x.hospital||'—')}${who} · tags: ${esc(tg)}`;
-    return `
-      <div class="caseOpen">
-        <div class="caseHeadRow">
-          <div class="caseLeft">
-            <div class="caseTitle">${head}</div>
-            <div class="caseSub">${sub}</div>
-          </div>
-          <div class="caseMeta">
-            <span class="badge ${x.sev==='S4'?'s4':'s3'}">${esc(x.sev)}</span>
-          </div>
-        </div>
-        <div class="caseText"><pre>${esc(x.text||'')}</pre></div>
-      </div>
-    `;
-  }
-
-  const html = `
-    <div class="reportGrid">
-      <div class="reportCard">
-        <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
-          <span class="badge s4">S4: <b>${s4.length}</b></span>
-          <span class="badge s3">S3: <b>${s3.length}</b></span>
-          <span class="badge">Total: <b>${rows.length}</b></span>
-        </div>
-        <div style="margin-top:10px; font-size:0.86rem; color: rgba(15,23,42,0.86); line-height:1.28rem;">
-          <div style="font-family:var(--mono);font-size:0.68rem;color:var(--text-muted);letter-spacing:0.06em">CONCEITO (BEST‑EFFORT)</div>
-          <div style="margin-top:6px">
-            <b>S4</b> = sinal de risco extremo (ex.: óbito/morte, sepse, erro grave, agressão/abuso, parada), priorizado para atenção imediata.<br/>
-            <b>S3</b> = risco alto / falha assistencial percebida (ex.: infecção, negligência/descaso, gestante/bebê, queda/fratura, sangramento, diagnóstico errado/tardio).<br/>
-            Classificação automática por palavras‑chave em reviews 1–2★; pode ter falso‑positivo/falso‑negativo.
-          </div>
-        </div>
-      </div>
-
-      <div class="reportCard">
-        <div style="font-family:var(--mono);font-size:0.68rem;color:var(--text-muted);letter-spacing:0.06em">CONCENTRAÇÃO (TOP)</div>
-        <div style="margin-top:8px">${topHospTable(10)}</div>
-      </div>
-    </div>
-
-    <h2 style="margin-top:14px">Casos S4 — texto completo</h2>
-    ${s4.length ? s4.map((x,i)=>caseBlock(x,i+1)).join('') : '<div class="meta">Nenhum S4 no período.</div>'}
-
-    <h2 style="margin-top:14px">Casos S3 — texto completo</h2>
-    ${s3.length ? s3.map((x,i)=>caseBlock(x,i+1)).join('') : '<div class="meta">Nenhum S3 no período.</div>'}
-  `;
-
-  el.innerHTML = html;
-
-  // store plain text for copy
-  window.__report90_text = buildReport90Text(rows, rank);
-}
-
-/* buildReport90Telegram removed: sharing via file download works better than paste formatting */
-
-function buildReport90Telegram(rows, rank){
-  const s4 = rows.filter(x=>x.sev==='S4');
-  const s3 = rows.filter(x=>x.sev==='S3');
-
-  const lines=[];
-  lines.push('RELATÓRIO 90D — REVIEWS CRÍTICOS');
-  lines.push(`S4: ${s4.length} | S3: ${s3.length} | Total: ${rows.length}`);
-  lines.push('');
-
-  // Top concentration
-  if(rank && rank.length){
-    lines.push('CONCENTRAÇÃO (TOP)');
-    rank.slice(0,10).forEach(([h,c])=>{
-      lines.push(`• ${h} — S4 ${c.S4||0} | S3 ${c.S3||0}`);
-    });
-    lines.push('');
-  }
-
-  function caseLines(x, idx){
-    const id = `${x.sev}-${String(idx).padStart(2,'0')}`;
-    const who = x.author ? ` — ${x.author}` : '';
-    const tg = (x.tags && x.tags.length) ? x.tags.join(', ') : '—';
-    lines.push('────────────────────────');
-    lines.push(`${id} · ${x.dtTxt} · ${x.rating}★`);
-    lines.push(`${x.hospital}${who}`);
-    lines.push(`tags: ${tg}`);
-    lines.push('');
-    lines.push(x.text || '');
-    lines.push('');
-  }
-
-  lines.push('S4 — TEXTO COMPLETO');
-  if(!s4.length) lines.push('Nenhum S4 no período.\n');
-  s4.forEach((x,i)=>caseLines(x,i+1));
-
-  lines.push('S3 — TEXTO COMPLETO');
-  if(!s3.length) lines.push('Nenhum S3 no período.\n');
-  s3.forEach((x,i)=>caseLines(x,i+1));
-
-  return lines.join('\n');
-}
-
-function buildReport90Text(rows, rank){
-  const s4 = rows.filter(x=>x.sev==='S4');
-  const s3 = rows.filter(x=>x.sev==='S3');
-  const lines=[];
-  lines.push('Relatório Executivo — Reviews Críticos (S3/S4) — últimos 90 dias');
-  lines.push('');
-  lines.push(`Resumo: S4 ${s4.length} | S3 ${s3.length} | Total ${rows.length}`);
-  lines.push('');
-  lines.push('Concentração por unidade:');
-  for(const [h,c] of rank){
-    lines.push(`- ${h}: S4 ${c.S4||0} | S3 ${c.S3||0}`);
-  }
-  lines.push('');
-  lines.push('S4 — texto completo');
-  s4.forEach((x,i)=>{
-    lines.push('');
-    lines.push(`${x.sev}-${String(i+1).padStart(2,'0')} · ${x.dtTxt} · ${x.rating}★ · ${x.hospital}${x.author?(' — '+x.author):''}`);
-    lines.push(`tags: ${(x.tags&&x.tags.length)?x.tags.join(', '):'—'}`);
-    lines.push(x.text||'');
-  });
-  lines.push('');
-  lines.push('S3 — texto completo');
-  s3.forEach((x,i)=>{
-    lines.push('');
-    lines.push(`${x.sev}-${String(i+1).padStart(2,'0')} · ${x.dtTxt} · ${x.rating}★ · ${x.hospital}${x.author?(' — '+x.author):''}`);
-    lines.push(`tags: ${(x.tags&&x.tags.length)?x.tags.join(', '):'—'}`);
-    lines.push(x.text||'');
-  });
-  return lines.join('\n');
-}
-
-async function render(all, payloadKpis, payloadTrend15){
-  dbg('render_start', { all: all?.length || 0 });
-  const topicsBox = $('topicsBox');
-  const moversBox = $('moversBox');
-  const commentsBox = $('commentsBox');
-  const report90 = $('report90');
-  const rankEl = $('kpiRank');
-  const avg7El = $('kpiAvg7');
-  const vol7El = $('kpiVol7');
-  const avg15El = $('kpiAvg15');
-  const deltaEl = $('kpiDelta');
-
-  try{
-    const k = computeKPIs(all);
-    if(rankEl) rankEl.textContent = k.rankText || '—';
-    if(avg7El) avg7El.textContent = Number.isFinite(k.avg7) ? ('★' + fmt(k.avg7,2)) : '—';
-    if(vol7El) vol7El.textContent = Number.isFinite(k.v7) ? String(k.v7) : '—';
-    if(avg15El) avg15El.textContent = Number.isFinite(k.avg15) ? ('★' + fmt(k.avg15,2)) : '—';
-    if(deltaEl) deltaEl.textContent = Number.isFinite(k.avg7) && Number.isFinite(k.baseline) ? ((k.avg7-k.baseline)>=0?'+':'') + fmt(k.avg7-k.baseline,2) : '—';
-    dbg('kpi_done', true);
-  }catch(e){ dbg('kpi_err', String(e)); }
-
-  try{
-    const all7 = lastNDays(all, 7);
-    const topics = computeTopics(all7);
-    const pos = Array.isArray(topics && topics.pos) ? topics.pos : [];
-    const neg = Array.isArray(topics && topics.neg) ? topics.neg : [];
-    if(topicsBox) topicsBox.innerHTML = '<div class="topics-grid"><div><div class="section-title">PRINCIPAIS MOTIVOS — POSITIVOS</div>'
-      + (pos.length ? pos.slice(0,5).map(x => '<div class="topic-row"><span>' + esc(x.motivo || x.text || '—') + '</span><b>' + esc(x.n != null ? x.n : (x.count != null ? x.count : '')) + '</b></div>').join('') : '<div class="placeholder">Sem dados disponíveis</div>')
-      + '</div><div><div class="section-title">PRINCIPAIS MOTIVOS — NEGATIVOS</div>'
-      + (neg.length ? neg.slice(0,5).map(x => '<div class="topic-row"><span>' + esc(x.motivo || x.text || '—') + '</span><b>' + esc(x.n != null ? x.n : (x.count != null ? x.count : '')) + '</b></div>').join('') : '<div class="placeholder">Sem dados disponíveis</div>')
-      + '</div></div>';
-    dbg('topics_done', { pos: pos.length, neg: neg.length });
-  }catch(e){
-    dbg('topics_err', String(e));
-    if(topicsBox) topicsBox.innerHTML = '<div class="placeholder">Sem dados disponíveis</div>';
-  }
-
-  // minimal guaranteed writes for the rest
-  try{
-    const movers = computeMovers(all);
-    const up = Array.isArray(movers && movers.up) ? movers.up.slice(0,5) : [];
-    const down = Array.isArray(movers && movers.down) ? movers.down.slice(0,5) : [];
-    const rowsHtml = arr => arr.map(x => '<tr><td>' + esc(x.hospital || '—') + '</td><td>' + fmt(x.avg7,2) + '★</td><td>' + fmt(x.avgHist,2) + '★</td><td>' + (x.vol7d || 0) + '</td></tr>').join('') || '<tr><td colspan="4">—</td></tr>';
-    if(moversBox) moversBox.innerHTML = '<div class="section-title">TOP 5 MELHORAS</div><table><thead><tr><th>HOSPITAL</th><th>7D</th><th>HIST</th><th>VOL7D</th></tr></thead><tbody>' + rowsHtml(up) + '</tbody></table>'
-      + '<div class="section-title" style="margin-top:10px">TOP 5 QUEDAS</div><table><thead><tr><th>HOSPITAL</th><th>7D</th><th>HIST</th><th>VOL7D</th></tr></thead><tbody>' + rowsHtml(down) + '</tbody></table>';
-    dbg('movers_done', true);
-  }catch(e){
-    dbg('movers_err', String(e));
-    if(moversBox) moversBox.innerHTML = '<div class="placeholder">Sem dados disponíveis</div>';
-  }
-
-  try{
-    const rows7 = lastNDays(all, 7).slice(-18).reverse();
-    const posRows = rows7.filter(r => Number(r.rating) >= 4).slice(0,9);
-    const negRows = rows7.filter(r => Number(r.rating) <= 2).slice(0,9);
-    const posHtml = posRows.length ? posRows.map(r => '<div class="comment-card"><b>' + esc(r.hospital || '—') + '</b><div>' + '★★★★★'.slice(0, Math.max(0, Math.min(5, Math.round(Number(r.rating) || 0)))) + '</div><div>' + esc(r.author || '') + '</div><div>' + esc(r.text || '') + '</div></div>').join('') : '<div class="placeholder">Sem dados disponíveis</div>';
-    const negHtml = negRows.length ? negRows.map(r => '<div class="comment-card"><b>' + esc(r.hospital || '—') + '</b><div>' + '★'.repeat(Math.max(1, Math.min(5, Math.round(Number(r.rating) || 1)))) + '</div><div>' + esc(r.author || '') + '</div><div>' + esc(r.text || '') + '</div></div>').join('') : '<div class="placeholder">Sem dados disponíveis</div>';
-    if(commentsBox) commentsBox.innerHTML = '<div class="section-title">POSITIVOS</div>' + posHtml + '<div class="section-title" style="margin-top:10px">NEGATIVOS</div>' + negHtml;
-    dbg('comments_done', true);
-  }catch(e){
-    dbg('comments_err', String(e));
-    if(commentsBox) commentsBox.innerHTML = '<div class="placeholder">Sem dados disponíveis</div>';
-  }
-
-  try{
-    if(report90) renderReport90(all);
-    dbg('report90_done', true);
-  }catch(e){
-    dbg('report90_err', String(e));
-  }
-
-  // keep chart optional and non-blocking
-  try{
-    if(!chart){
-      const c = $('complaintsChart');
-      const ctx = c && c.getContext ? c.getContext('2d') : null;
-      if(ctx) chart = new Chart(ctx, { data:{ labels:[], datasets:[] }, options:{ responsive:true, maintainAspectRatio:false } });
-    }
-    dbg('chart_init_done', !!chart);
-  }catch(e){ dbg('chart_err', String(e)); }
-
-  return computeKPIs(all);
-}
-function renderReport90(all){
-  const el = document.getElementById('report90');
-  if(!el){ dbg('renderTyphoon_noEl', true); return; }
-
-  const rows = computeS3S4_90d(all);
-  const s4 = rows.filter(x=>x.sev==='S4');
-  const s3 = rows.filter(x=>x.sev==='S3');
-
-  // concentration
-  const by = new Map();
-  for(const r of rows){
-    const k = r.hospital || '—';
-    const cur = by.get(k) || {S4:0,S3:0};
-    cur[r.sev] = (cur[r.sev]||0) + 1;
-    by.set(k, cur);
-  }
-  const rank = Array.from(by.entries()).sort((a,b)=>{
-    const sa = (a[1].S4*1000 + a[1].S3);
-    const sb = (b[1].S4*1000 + b[1].S3);
-    if(sa!==sb) return sb-sa;
-    return a[0].localeCompare(b[0]);
-  });
-
-  function topHospTable(limit=12){
-    const rows = rank.slice(0,limit);
-    if(!rows.length) return '<div class="meta">—</div>';
-    return `
-      <table>
-        <thead><tr><th>Hospital</th><th style="text-align:right">S4</th><th style="text-align:right">S3</th></tr></thead>
-        <tbody>
-          ${rows.map(([h,c])=>`<tr><td title="${esc(h)}">${esc(h)}</td><td style="text-align:right">${c.S4||0}</td><td style="text-align:right">${c.S3||0}</td></tr>`).join('')}
-        </tbody>
-      </table>
-    `;
-  }
-
-  function caseBlock(x, idx){
-    const id = `${x.sev}-${String(idx).padStart(2,'0')}`;
-    const tg = (x.tags && x.tags.length) ? x.tags.join(', ') : '—';
-    const who = x.author ? ` · ${esc(x.author)}` : '';
-    const head = `${id} · ${esc(x.dtTxt)} · ${esc(String(x.rating))}★`;
-    const sub = `${esc(x.hospital||'—')}${who} · tags: ${esc(tg)}`;
-    return `
-      <div class="caseOpen">
-        <div class="caseHeadRow">
-          <div class="caseLeft">
-            <div class="caseTitle">${head}</div>
-            <div class="caseSub">${sub}</div>
-          </div>
-          <div class="caseMeta">
-            <span class="badge ${x.sev==='S4'?'s4':'s3'}">${esc(x.sev)}</span>
-          </div>
-        </div>
-        <div class="caseText"><pre>${esc(x.text||'')}</pre></div>
-      </div>
-    `;
-  }
-
-  const html = `
-    <div class="reportGrid">
-      <div class="reportCard">
-        <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
-          <span class="badge s4">S4: <b>${s4.length}</b></span>
-          <span class="badge s3">S3: <b>${s3.length}</b></span>
-          <span class="badge">Total: <b>${rows.length}</b></span>
-        </div>
-        <div style="margin-top:10px; font-size:0.86rem; color: rgba(15,23,42,0.86); line-height:1.28rem;">
-          <div style="font-family:var(--mono);font-size:0.68rem;color:var(--text-muted);letter-spacing:0.06em">CONCEITO (BEST‑EFFORT)</div>
-          <div style="margin-top:6px">
-            <b>S4</b> = sinal de risco extremo (ex.: óbito/morte, sepse, erro grave, agressão/abuso, parada), priorizado para atenção imediata.<br/>
-            <b>S3</b> = risco alto / falha assistencial percebida (ex.: infecção, negligência/descaso, gestante/bebê, queda/fratura, sangramento, diagnóstico errado/tardio).<br/>
-            Classificação automática por palavras‑chave em reviews 1–2★; pode ter falso‑positivo/falso‑negativo.
-          </div>
-        </div>
-      </div>
-
-      <div class="reportCard">
-        <div style="font-family:var(--mono);font-size:0.68rem;color:var(--text-muted);letter-spacing:0.06em">CONCENTRAÇÃO (TOP)</div>
-        <div style="margin-top:8px">${topHospTable(10)}</div>
-      </div>
-    </div>
-
-    <h2 style="margin-top:14px">Casos S4 — texto completo</h2>
-    ${s4.length ? s4.map((x,i)=>caseBlock(x,i+1)).join('') : '<div class="meta">Nenhum S4 no período.</div>'}
-
-    <h2 style="margin-top:14px">Casos S3 — texto completo</h2>
-    ${s3.length ? s3.map((x,i)=>caseBlock(x,i+1)).join('') : '<div class="meta">Nenhum S3 no período.</div>'}
-  `;
-
-  el.innerHTML = html;
-
-  // store plain text for copy
-  window.__report90_text = buildReport90Text(rows, rank);
-}
-
-/* buildReport90Telegram removed: sharing via file download works better than paste formatting */
-
-function buildReport90Telegram(rows, rank){
-  const s4 = rows.filter(x=>x.sev==='S4');
-  const s3 = rows.filter(x=>x.sev==='S3');
-
-  const lines=[];
-  lines.push('RELATÓRIO 90D — REVIEWS CRÍTICOS');
-  lines.push(`S4: ${s4.length} | S3: ${s3.length} | Total: ${rows.length}`);
-  lines.push('');
-
-  // Top concentration
-  if(rank && rank.length){
-    lines.push('CONCENTRAÇÃO (TOP)');
-    rank.slice(0,10).forEach(([h,c])=>{
-      lines.push(`• ${h} — S4 ${c.S4||0} | S3 ${c.S3||0}`);
-    });
-    lines.push('');
-  }
-
-  function caseLines(x, idx){
-    const id = `${x.sev}-${String(idx).padStart(2,'0')}`;
-    const who = x.author ? ` — ${x.author}` : '';
-    const tg = (x.tags && x.tags.length) ? x.tags.join(', ') : '—';
-    lines.push('────────────────────────');
-    lines.push(`${id} · ${x.dtTxt} · ${x.rating}★`);
-    lines.push(`${x.hospital}${who}`);
-    lines.push(`tags: ${tg}`);
-    lines.push('');
-    lines.push(x.text || '');
-    lines.push('');
-  }
-
-  lines.push('S4 — TEXTO COMPLETO');
-  if(!s4.length) lines.push('Nenhum S4 no período.\n');
-  s4.forEach((x,i)=>caseLines(x,i+1));
-
-  lines.push('S3 — TEXTO COMPLETO');
-  if(!s3.length) lines.push('Nenhum S3 no período.\n');
-  s3.forEach((x,i)=>caseLines(x,i+1));
-
-  return lines.join('\n');
-}
-
-function buildReport90Text(rows, rank){
-  const s4 = rows.filter(x=>x.sev==='S4');
-  const s3 = rows.filter(x=>x.sev==='S3');
-  const lines=[];
-  lines.push('Relatório Executivo — Reviews Críticos (S3/S4) — últimos 90 dias');
-  lines.push('');
-  lines.push(`Resumo: S4 ${s4.length} | S3 ${s3.length} | Total ${rows.length}`);
-  lines.push('');
-  lines.push('Concentração por unidade:');
-  for(const [h,c] of rank){
-    lines.push(`- ${h}: S4 ${c.S4||0} | S3 ${c.S3||0}`);
-  }
-  lines.push('');
-  lines.push('S4 — texto completo');
-  s4.forEach((x,i)=>{
-    lines.push('');
-    lines.push(`${x.sev}-${String(i+1).padStart(2,'0')} · ${x.dtTxt} · ${x.rating}★ · ${x.hospital}${x.author?(' — '+x.author):''}`);
-    lines.push(`tags: ${(x.tags&&x.tags.length)?x.tags.join(', '):'—'}`);
-    lines.push(x.text||'');
-  });
-  lines.push('');
-  lines.push('S3 — texto completo');
-  s3.forEach((x,i)=>{
-    lines.push('');
-    lines.push(`${x.sev}-${String(i+1).padStart(2,'0')} · ${x.dtTxt} · ${x.rating}★ · ${x.hospital}${x.author?(' — '+x.author):''}`);
-    lines.push(`tags: ${(x.tags&&x.tags.length)?x.tags.join(', '):'—'}`);
-    lines.push(x.text||'');
-  });
-  return lines.join('\n');
-}
-
-async function render(all, payloadKpis, payloadTrend15){
-  dbg('render_start', { all: all?.length || 0 });
-  const topicsBox = $('topicsBox');
-  const moversBox = $('moversBox');
-  const commentsBox = $('commentsBox');
-  const report90 = $('report90');
-  const rankEl = $('kpiRank');
-  const avg7El = $('kpiAvg7');
-  const vol7El = $('kpiVol7');
-  const avg15El = $('kpiAvg15');
-  const deltaEl = $('kpiDelta');
-
-  const k = computeKPIs(all);
-  if(rankEl) rankEl.textContent = k.rankText || '—';
-  if(avg7El) avg7El.textContent = Number.isFinite(k.avg7) ? ('★' + fmt(k.avg7,2)) : '—';
-  if(vol7El) vol7El.textContent = Number.isFinite(k.v7) ? String(k.v7) : '—';
-  if(avg15El) avg15El.textContent = Number.isFinite(k.avg15) ? ('★' + fmt(k.avg15,2)) : '—';
-  if(deltaEl) deltaEl.textContent = Number.isFinite(k.avg7) && Number.isFinite(k.baseline) ? ((k.avg7-k.baseline)>=0?'+':'') + fmt(k.avg7-k.baseline,2) : '—';
-
-  try{
-    const all7 = lastNDays(all, 7);
-    const topics = computeTopics(all7);
-    const pos = Array.isArray(topics && topics.pos) ? topics.pos : [];
-    const neg = Array.isArray(topics && topics.neg) ? topics.neg : [];
-    if(topicsBox) topicsBox.innerHTML = '<div class="topics-grid"><div><div class="section-title">PRINCIPAIS MOTIVOS — POSITIVOS</div>'
-      + (pos.length ? pos.slice(0,5).map(x => '<div class="topic-row"><span>' + esc(x.motivo || x.text || '—') + '</span><b>' + esc(x.n != null ? x.n : (x.count != null ? x.count : '')) + '</b></div>').join('') : '<div class="placeholder">Sem dados disponíveis</div>')
-      + '</div><div><div class="section-title">PRINCIPAIS MOTIVOS — NEGATIVOS</div>'
-      + (neg.length ? neg.slice(0,5).map(x => '<div class="topic-row"><span>' + esc(x.motivo || x.text || '—') + '</span><b>' + esc(x.n != null ? x.n : (x.count != null ? x.count : '')) + '</b></div>').join('') : '<div class="placeholder">Sem dados disponíveis</div>')
-      + '</div></div>';
-    dbg('topics_done', { pos: pos.length, neg: neg.length });
-  }catch(e){ dbg('topics_err', String(e)); }
-
-  try{
-    const movers = computeMovers(all);
-    const up = Array.isArray(movers && movers.up) ? movers.up.slice(0,5) : [];
-    const down = Array.isArray(movers && movers.down) ? movers.down.slice(0,5) : [];
-    const rowsHtml = arr => arr.map(x => '<tr><td>' + esc(x.hospital || '—') + '</td><td>' + fmt(x.avg7,2) + '★</td><td>' + fmt(x.avgHist,2) + '★</td><td>' + (x.vol7d || 0) + '</td></tr>').join('') || '<tr><td colspan="4">—</td></tr>';
-    if(moversBox) moversBox.innerHTML = '<div class="section-title">TOP 5 MELHORAS</div><table><thead><tr><th>HOSPITAL</th><th>7D</th><th>HIST</th><th>VOL7D</th></tr></thead><tbody>' + rowsHtml(up) + '</tbody></table>'
-      + '<div class="section-title" style="margin-top:10px">TOP 5 QUEDAS</div><table><thead><tr><th>HOSPITAL</th><th>7D</th><th>HIST</th><th>VOL7D</th></tr></thead><tbody>' + rowsHtml(down) + '</tbody></table>';
-    dbg('movers_done', { up: up.length, down: down.length });
-  }catch(e){ dbg('movers_err', String(e)); }
-
-  try{
-    const rows7 = lastNDays(all, 7).slice(-18).reverse();
-    const posRows = rows7.filter(r => Number(r.rating) >= 4).slice(0,9);
-    const negRows = rows7.filter(r => Number(r.rating) <= 2).slice(0,9);
-    const posHtml = posRows.length ? posRows.map(r => '<div class="comment-card"><b>' + esc(r.hospital || '—') + '</b><div>' + '★★★★★'.slice(0, Math.max(0, Math.min(5, Math.round(Number(r.rating) || 0)))) + '</div><div>' + esc(r.author || '') + '</div><div>' + esc(r.text || '') + '</div></div>').join('') : '<div class="placeholder">Sem dados disponíveis</div>';
-    const negHtml = negRows.length ? negRows.map(r => '<div class="comment-card"><b>' + esc(r.hospital || '—') + '</b><div>' + '★'.repeat(Math.max(1, Math.min(5, Math.round(Number(r.rating) || 1)))) + '</div><div>' + esc(r.author || '') + '</div><div>' + esc(r.text || '') + '</div></div>').join('') : '<div class="placeholder">Sem dados disponíveis</div>';
-    if(commentsBox) commentsBox.innerHTML = '<div class="section-title">POSITIVOS</div>' + posHtml + '<div class="section-title" style="margin-top:10px">NEGATIVOS</div>' + negHtml;
-    dbg('comments_done', { pos: posRows.length, neg: negRows.length });
-  }catch(e){ dbg('comments_err', String(e)); }
-
-  try{
-    if(report90) renderReport90(all);
-    dbg('report90_done', true);
-  }catch(e){ dbg('report90_err', String(e)); }
-
-  try{
-    if(!chart){
-      const ctx = $('complaintsChart')?.getContext?.('2d');
-      if(ctx) chart = new Chart(ctx, { data:{ labels:[], datasets:[] }, options:{ responsive:true, maintainAspectRatio:false } });
-    }
-    const all7 = lastNDays(all, 15);
-    const series = buildDailyTrend(all7, 15);
-    const labels = series.map(x => x.day.slice(5));
-    const dataVol = series.map(x => x.volume);
-    const dataAvg = series.map(x => x.avg);
-    const baseline = k.baseline;
-    dbg('renderTyphoon_chart_ready', !!chart);
-  if(chart){
-      chart.data.labels = labels;
-      chart.data.datasets = [
-        { type:'bar', label:'Volume (n)', data:dataVol },
-        { type:'line', label:'Nota média (★)', data:dataAvg },
-        { type:'line', label:'Média geral', data:labels.map(()=>baseline) },
-      ];
-      chart.update();
-    }
-    dbg('chart_done', { labels: labels.length });
-  }catch(e){ dbg('chart_err', String(e)); }
-
-  return k;
-}
-function renderReport90(all){
-  const el = document.getElementById('report90');
-  if(!el){ dbg('renderTyphoon_noEl', true); return; }
-
-  const rows = computeS3S4_90d(all);
-  const s4 = rows.filter(x=>x.sev==='S4');
-  const s3 = rows.filter(x=>x.sev==='S3');
-
-  // concentration
-  const by = new Map();
-  for(const r of rows){
-    const k = r.hospital || '—';
-    const cur = by.get(k) || {S4:0,S3:0};
-    cur[r.sev] = (cur[r.sev]||0) + 1;
-    by.set(k, cur);
-  }
-  const rank = Array.from(by.entries()).sort((a,b)=>{
-    const sa = (a[1].S4*1000 + a[1].S3);
-    const sb = (b[1].S4*1000 + b[1].S3);
-    if(sa!==sb) return sb-sa;
-    return a[0].localeCompare(b[0]);
-  });
-
-  function topHospTable(limit=12){
-    const rows = rank.slice(0,limit);
-    if(!rows.length) return '<div class="meta">—</div>';
-    return `
-      <table>
-        <thead><tr><th>Hospital</th><th style="text-align:right">S4</th><th style="text-align:right">S3</th></tr></thead>
-        <tbody>
-          ${rows.map(([h,c])=>`<tr><td title="${esc(h)}">${esc(h)}</td><td style="text-align:right">${c.S4||0}</td><td style="text-align:right">${c.S3||0}</td></tr>`).join('')}
-        </tbody>
-      </table>
-    `;
-  }
-
-  function caseBlock(x, idx){
-    const id = `${x.sev}-${String(idx).padStart(2,'0')}`;
-    const tg = (x.tags && x.tags.length) ? x.tags.join(', ') : '—';
-    const who = x.author ? ` · ${esc(x.author)}` : '';
-    const head = `${id} · ${esc(x.dtTxt)} · ${esc(String(x.rating))}★`;
-    const sub = `${esc(x.hospital||'—')}${who} · tags: ${esc(tg)}`;
-    return `
-      <div class="caseOpen">
-        <div class="caseHeadRow">
-          <div class="caseLeft">
-            <div class="caseTitle">${head}</div>
-            <div class="caseSub">${sub}</div>
-          </div>
-          <div class="caseMeta">
-            <span class="badge ${x.sev==='S4'?'s4':'s3'}">${esc(x.sev)}</span>
-          </div>
-        </div>
-        <div class="caseText"><pre>${esc(x.text||'')}</pre></div>
-      </div>
-    `;
-  }
-
-  const html = `
-    <div class="reportGrid">
-      <div class="reportCard">
-        <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
-          <span class="badge s4">S4: <b>${s4.length}</b></span>
-          <span class="badge s3">S3: <b>${s3.length}</b></span>
-          <span class="badge">Total: <b>${rows.length}</b></span>
-        </div>
-        <div style="margin-top:10px; font-size:0.86rem; color: rgba(15,23,42,0.86); line-height:1.28rem;">
-          <div style="font-family:var(--mono);font-size:0.68rem;color:var(--text-muted);letter-spacing:0.06em">CONCEITO (BEST‑EFFORT)</div>
-          <div style="margin-top:6px">
-            <b>S4</b> = sinal de risco extremo (ex.: óbito/morte, sepse, erro grave, agressão/abuso, parada), priorizado para atenção imediata.<br/>
-            <b>S3</b> = risco alto / falha assistencial percebida (ex.: infecção, negligência/descaso, gestante/bebê, queda/fratura, sangramento, diagnóstico errado/tardio).<br/>
-            Classificação automática por palavras‑chave em reviews 1–2★; pode ter falso‑positivo/falso‑negativo.
-          </div>
-        </div>
-      </div>
-
-      <div class="reportCard">
-        <div style="font-family:var(--mono);font-size:0.68rem;color:var(--text-muted);letter-spacing:0.06em">CONCENTRAÇÃO (TOP)</div>
-        <div style="margin-top:8px">${topHospTable(10)}</div>
-      </div>
-    </div>
-
-    <h2 style="margin-top:14px">Casos S4 — texto completo</h2>
-    ${s4.length ? s4.map((x,i)=>caseBlock(x,i+1)).join('') : '<div class="meta">Nenhum S4 no período.</div>'}
-
-    <h2 style="margin-top:14px">Casos S3 — texto completo</h2>
-    ${s3.length ? s3.map((x,i)=>caseBlock(x,i+1)).join('') : '<div class="meta">Nenhum S3 no período.</div>'}
-  `;
-
-  el.innerHTML = html;
-
-  // store plain text for copy
-  window.__report90_text = buildReport90Text(rows, rank);
-}
-
-/* buildReport90Telegram removed: sharing via file download works better than paste formatting */
-
-function buildReport90Telegram(rows, rank){
-  const s4 = rows.filter(x=>x.sev==='S4');
-  const s3 = rows.filter(x=>x.sev==='S3');
-
-  const lines=[];
-  lines.push('RELATÓRIO 90D — REVIEWS CRÍTICOS');
-  lines.push(`S4: ${s4.length} | S3: ${s3.length} | Total: ${rows.length}`);
-  lines.push('');
-
-  // Top concentration
-  if(rank && rank.length){
-    lines.push('CONCENTRAÇÃO (TOP)');
-    rank.slice(0,10).forEach(([h,c])=>{
-      lines.push(`• ${h} — S4 ${c.S4||0} | S3 ${c.S3||0}`);
-    });
-    lines.push('');
-  }
-
-  function caseLines(x, idx){
-    const id = `${x.sev}-${String(idx).padStart(2,'0')}`;
-    const who = x.author ? ` — ${x.author}` : '';
-    const tg = (x.tags && x.tags.length) ? x.tags.join(', ') : '—';
-    lines.push('────────────────────────');
-    lines.push(`${id} · ${x.dtTxt} · ${x.rating}★`);
-    lines.push(`${x.hospital}${who}`);
-    lines.push(`tags: ${tg}`);
-    lines.push('');
-    lines.push(x.text || '');
-    lines.push('');
-  }
-
-  lines.push('S4 — TEXTO COMPLETO');
-  if(!s4.length) lines.push('Nenhum S4 no período.\n');
-  s4.forEach((x,i)=>caseLines(x,i+1));
-
-  lines.push('S3 — TEXTO COMPLETO');
-  if(!s3.length) lines.push('Nenhum S3 no período.\n');
-  s3.forEach((x,i)=>caseLines(x,i+1));
-
-  return lines.join('\n');
-}
-
-function buildReport90Text(rows, rank){
-  const s4 = rows.filter(x=>x.sev==='S4');
-  const s3 = rows.filter(x=>x.sev==='S3');
-  const lines=[];
-  lines.push('Relatório Executivo — Reviews Críticos (S3/S4) — últimos 90 dias');
-  lines.push('');
-  lines.push(`Resumo: S4 ${s4.length} | S3 ${s3.length} | Total ${rows.length}`);
-  lines.push('');
-  lines.push('Concentração por unidade:');
-  for(const [h,c] of rank){
-    lines.push(`- ${h}: S4 ${c.S4||0} | S3 ${c.S3||0}`);
-  }
-  lines.push('');
-  lines.push('S4 — texto completo');
-  s4.forEach((x,i)=>{
-    lines.push('');
-    lines.push(`${x.sev}-${String(i+1).padStart(2,'0')} · ${x.dtTxt} · ${x.rating}★ · ${x.hospital}${x.author?(' — '+x.author):''}`);
-    lines.push(`tags: ${(x.tags&&x.tags.length)?x.tags.join(', '):'—'}`);
-    lines.push(x.text||'');
-  });
-  lines.push('');
-  lines.push('S3 — texto completo');
-  s3.forEach((x,i)=>{
-    lines.push('');
-    lines.push(`${x.sev}-${String(i+1).padStart(2,'0')} · ${x.dtTxt} · ${x.rating}★ · ${x.hospital}${x.author?(' — '+x.author):''}`);
-    lines.push(`tags: ${(x.tags&&x.tags.length)?x.tags.join(', '):'—'}`);
-    lines.push(x.text||'');
-  });
-  return lines.join('\n');
-}
-
-async function render(all, payloadKpis, payloadTrend15){
-  dbg('render_start', { all: all?.length || 0 });
-  const topicsBox = $('topicsBox');
-  const moversBox = $('moversBox');
-  const commentsBox = $('commentsBox');
-  const k = computeKPIs(all);
-  const all7 = lastNDays(all, 7);
-  const topics = computeTopics(all7);
-  const pos = Array.isArray(topics && topics.pos) ? topics.pos : [];
-  const neg = Array.isArray(topics && topics.neg) ? topics.neg : [];
-  const movers = computeMovers(all);
-  const up = Array.isArray(movers && movers.up) ? movers.up.slice(0,5) : [];
-  const down = Array.isArray(movers && movers.down) ? movers.down.slice(0,5) : [];
-  const rows7 = all7.slice(-18).reverse();
-  const posRows = rows7.filter(r => Number(r.rating) >= 4).slice(0,9);
-  const negRows = rows7.filter(r => Number(r.rating) <= 2).slice(0,9);
-  const write = () => {
-    if(topicsBox) topicsBox.innerHTML = '<div class="topics-grid"><div><div class="section-title">PRINCIPAIS MOTIVOS — POSITIVOS</div>'
-      + (pos.length ? pos.slice(0,5).map(x => '<div class="topic-row"><span>' + esc(x.motivo || x.text || '—') + '</span><b>' + esc(x.n != null ? x.n : (x.count != null ? x.count : '')) + '</b></div>').join('') : '<div class="placeholder">Sem dados disponíveis</div>')
-      + '</div><div><div class="section-title">PRINCIPAIS MOTIVOS — NEGATIVOS</div>'
-      + (neg.length ? neg.slice(0,5).map(x => '<div class="topic-row"><span>' + esc(x.motivo || x.text || '—') + '</span><b>' + esc(x.n != null ? x.n : (x.count != null ? x.count : '')) + '</b></div>').join('') : '<div class="placeholder">Sem dados disponíveis</div>')
-      + '</div></div>';
-    const rowsHtml = arr => arr.map(x => '<tr><td>' + esc(x.hospital || '—') + '</td><td>' + fmt(x.avg7,2) + '★</td><td>' + fmt(x.avgHist,2) + '★</td><td>' + (x.vol7d || 0) + '</td></tr>').join('') || '<tr><td colspan="4">—</td></tr>';
-    if(moversBox) moversBox.innerHTML = '<div class="section-title">TOP 5 MELHORAS</div><table><thead><tr><th>HOSPITAL</th><th>7D</th><th>HIST</th><th>VOL7D</th></tr></thead><tbody>' + rowsHtml(up) + '</tbody></table>'
-      + '<div class="section-title" style="margin-top:10px">TOP 5 QUEDAS</div><table><thead><tr><th>HOSPITAL</th><th>7D</th><th>HIST</th><th>VOL7D</th></tr></thead><tbody>' + rowsHtml(down) + '</tbody></table>';
-    const posHtml = posRows.length ? posRows.map(r => '<div class="comment-card"><b>' + esc(r.hospital || '—') + '</b><div>' + '★★★★★'.slice(0, Math.max(0, Math.min(5, Math.round(Number(r.rating) || 0)))) + '</div><div>' + esc(r.author || '') + '</div><div>' + esc(r.text || '') + '</div></div>').join('') : '<div class="placeholder">Sem dados disponíveis</div>';
-    const negHtml = negRows.length ? negRows.map(r => '<div class="comment-card"><b>' + esc(r.hospital || '—') + '</b><div>' + '★'.repeat(Math.max(1, Math.min(5, Math.round(Number(r.rating) || 1)))) + '</div><div>' + esc(r.author || '') + '</div><div>' + esc(r.text || '') + '</div></div>').join('') : '<div class="placeholder">Sem dados disponíveis</div>';
-    if(commentsBox) commentsBox.innerHTML = '<div class=\"section-title\">POSITIVOS</div>' + posHtml + '<div class=\"section-title\" style=\"margin-top:10px\">NEGATIVOS</div>' + negHtml;
-  dbg('render_boxes', {topics: !!topicsBox, movers: !!moversBox, comments: !!commentsBox});
-  };
-  setTimeout(write, 0);
-  return k;
-}
-function renderReport90(all){
-  const el = document.getElementById('report90');
-  if(!el){ dbg('renderTyphoon_noEl', true); return; }
-
-  const rows = computeS3S4_90d(all);
-  const s4 = rows.filter(x=>x.sev==='S4');
-  const s3 = rows.filter(x=>x.sev==='S3');
-
-  // concentration
-  const by = new Map();
-  for(const r of rows){
-    const k = r.hospital || '—';
-    const cur = by.get(k) || {S4:0,S3:0};
-    cur[r.sev] = (cur[r.sev]||0) + 1;
-    by.set(k, cur);
-  }
-  const rank = Array.from(by.entries()).sort((a,b)=>{
-    const sa = (a[1].S4*1000 + a[1].S3);
-    const sb = (b[1].S4*1000 + b[1].S3);
-    if(sa!==sb) return sb-sa;
-    return a[0].localeCompare(b[0]);
-  });
-
-  function topHospTable(limit=12){
-    const rows = rank.slice(0,limit);
-    if(!rows.length) return '<div class="meta">—</div>';
-    return `
-      <table>
-        <thead><tr><th>Hospital</th><th style="text-align:right">S4</th><th style="text-align:right">S3</th></tr></thead>
-        <tbody>
-          ${rows.map(([h,c])=>`<tr><td title="${esc(h)}">${esc(h)}</td><td style="text-align:right">${c.S4||0}</td><td style="text-align:right">${c.S3||0}</td></tr>`).join('')}
-        </tbody>
-      </table>
-    `;
-  }
-
-  function caseBlock(x, idx){
-    const id = `${x.sev}-${String(idx).padStart(2,'0')}`;
-    const tg = (x.tags && x.tags.length) ? x.tags.join(', ') : '—';
-    const who = x.author ? ` · ${esc(x.author)}` : '';
-    const head = `${id} · ${esc(x.dtTxt)} · ${esc(String(x.rating))}★`;
-    const sub = `${esc(x.hospital||'—')}${who} · tags: ${esc(tg)}`;
-    return `
-      <div class="caseOpen">
-        <div class="caseHeadRow">
-          <div class="caseLeft">
-            <div class="caseTitle">${head}</div>
-            <div class="caseSub">${sub}</div>
-          </div>
-          <div class="caseMeta">
-            <span class="badge ${x.sev==='S4'?'s4':'s3'}">${esc(x.sev)}</span>
-          </div>
-        </div>
-        <div class="caseText"><pre>${esc(x.text||'')}</pre></div>
-      </div>
-    `;
-  }
-
-  const html = `
-    <div class="reportGrid">
-      <div class="reportCard">
-        <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
-          <span class="badge s4">S4: <b>${s4.length}</b></span>
-          <span class="badge s3">S3: <b>${s3.length}</b></span>
-          <span class="badge">Total: <b>${rows.length}</b></span>
-        </div>
-        <div style="margin-top:10px; font-size:0.86rem; color: rgba(15,23,42,0.86); line-height:1.28rem;">
-          <div style="font-family:var(--mono);font-size:0.68rem;color:var(--text-muted);letter-spacing:0.06em">CONCEITO (BEST‑EFFORT)</div>
-          <div style="margin-top:6px">
-            <b>S4</b> = sinal de risco extremo (ex.: óbito/morte, sepse, erro grave, agressão/abuso, parada), priorizado para atenção imediata.<br/>
-            <b>S3</b> = risco alto / falha assistencial percebida (ex.: infecção, negligência/descaso, gestante/bebê, queda/fratura, sangramento, diagnóstico errado/tardio).<br/>
-            Classificação automática por palavras‑chave em reviews 1–2★; pode ter falso‑positivo/falso‑negativo.
-          </div>
-        </div>
-      </div>
-
-      <div class="reportCard">
-        <div style="font-family:var(--mono);font-size:0.68rem;color:var(--text-muted);letter-spacing:0.06em">CONCENTRAÇÃO (TOP)</div>
-        <div style="margin-top:8px">${topHospTable(10)}</div>
-      </div>
-    </div>
-
-    <h2 style="margin-top:14px">Casos S4 — texto completo</h2>
-    ${s4.length ? s4.map((x,i)=>caseBlock(x,i+1)).join('') : '<div class="meta">Nenhum S4 no período.</div>'}
-
-    <h2 style="margin-top:14px">Casos S3 — texto completo</h2>
-    ${s3.length ? s3.map((x,i)=>caseBlock(x,i+1)).join('') : '<div class="meta">Nenhum S3 no período.</div>'}
-  `;
-
-  el.innerHTML = html;
-
-  // store plain text for copy
-  window.__report90_text = buildReport90Text(rows, rank);
-}
-
-/* buildReport90Telegram removed: sharing via file download works better than paste formatting */
-
-function buildReport90Telegram(rows, rank){
-  const s4 = rows.filter(x=>x.sev==='S4');
-  const s3 = rows.filter(x=>x.sev==='S3');
-
-  const lines=[];
-  lines.push('RELATÓRIO 90D — REVIEWS CRÍTICOS');
-  lines.push(`S4: ${s4.length} | S3: ${s3.length} | Total: ${rows.length}`);
-  lines.push('');
-
-  // Top concentration
-  if(rank && rank.length){
-    lines.push('CONCENTRAÇÃO (TOP)');
-    rank.slice(0,10).forEach(([h,c])=>{
-      lines.push(`• ${h} — S4 ${c.S4||0} | S3 ${c.S3||0}`);
-    });
-    lines.push('');
-  }
-
-  function caseLines(x, idx){
-    const id = `${x.sev}-${String(idx).padStart(2,'0')}`;
-    const who = x.author ? ` — ${x.author}` : '';
-    const tg = (x.tags && x.tags.length) ? x.tags.join(', ') : '—';
-    lines.push('────────────────────────');
-    lines.push(`${id} · ${x.dtTxt} · ${x.rating}★`);
-    lines.push(`${x.hospital}${who}`);
-    lines.push(`tags: ${tg}`);
-    lines.push('');
-    lines.push(x.text || '');
-    lines.push('');
-  }
-
-  lines.push('S4 — TEXTO COMPLETO');
-  if(!s4.length) lines.push('Nenhum S4 no período.\n');
-  s4.forEach((x,i)=>caseLines(x,i+1));
-
-  lines.push('S3 — TEXTO COMPLETO');
-  if(!s3.length) lines.push('Nenhum S3 no período.\n');
-  s3.forEach((x,i)=>caseLines(x,i+1));
-
-  return lines.join('\n');
-}
-
-function buildReport90Text(rows, rank){
-  const s4 = rows.filter(x=>x.sev==='S4');
-  const s3 = rows.filter(x=>x.sev==='S3');
-  const lines=[];
-  lines.push('Relatório Executivo — Reviews Críticos (S3/S4) — últimos 90 dias');
-  lines.push('');
-  lines.push(`Resumo: S4 ${s4.length} | S3 ${s3.length} | Total ${rows.length}`);
-  lines.push('');
-  lines.push('Concentração por unidade:');
-  for(const [h,c] of rank){
-    lines.push(`- ${h}: S4 ${c.S4||0} | S3 ${c.S3||0}`);
-  }
-  lines.push('');
-  lines.push('S4 — texto completo');
-  s4.forEach((x,i)=>{
-    lines.push('');
-    lines.push(`${x.sev}-${String(i+1).padStart(2,'0')} · ${x.dtTxt} · ${x.rating}★ · ${x.hospital}${x.author?(' — '+x.author):''}`);
-    lines.push(`tags: ${(x.tags&&x.tags.length)?x.tags.join(', '):'—'}`);
-    lines.push(x.text||'');
-  });
-  lines.push('');
-  lines.push('S3 — texto completo');
-  s3.forEach((x,i)=>{
-    lines.push('');
-    lines.push(`${x.sev}-${String(i+1).padStart(2,'0')} · ${x.dtTxt} · ${x.rating}★ · ${x.hospital}${x.author?(' — '+x.author):''}`);
-    lines.push(`tags: ${(x.tags&&x.tags.length)?x.tags.join(', '):'—'}`);
-    lines.push(x.text||'');
-  });
-  return lines.join('\n');
-}
-
-async function render(all, payloadKpis, payloadTrend15){
-  dbg('render_start', { all: all?.length || 0 });
-  const topicsBox = $('topicsBox');
-  const moversBox = $('moversBox');
-  const commentsBox = $('commentsBox');
-  const report90 = $('report90');
-  const rankEl = $('kpiRank');
-  const avg7El = $('kpiAvg7');
-  const vol7El = $('kpiVol7');
-  const avg15El = $('kpiAvg15');
-  const deltaEl = $('kpiDelta');
-
-  const k = computeKPIs(all);
-  if(payloadKpis && typeof payloadKpis === 'object'){
-    if(payloadKpis.v7!=null) k.v7 = payloadKpis.v7;
-    if(payloadKpis.vPrev!=null) k.vPrev = payloadKpis.vPrev;
-    if(payloadKpis.vDelta!=null) k.vDelta = payloadKpis.vDelta;
-    if(payloadKpis.avg7!=null) k.avg7 = payloadKpis.avg7;
-    if(payloadKpis.avg15!=null) k.avg15 = payloadKpis.avg15;
-    if(payloadKpis.baseline!=null) k.baseline = payloadKpis.baseline;
-  }
-  if(payloadTrend15 && typeof payloadTrend15 === 'object' && payloadTrend15.baseline!=null) k.baseline = payloadTrend15.baseline;
-
-  if(rankEl) rankEl.textContent = k.rankText || '—';
-  if(avg7El) avg7El.textContent = Number.isFinite(k.avg7) ? ('★' + fmt(k.avg7,2)) : '—';
-  if(vol7El) vol7El.textContent = Number.isFinite(k.v7) ? String(k.v7) : '—';
-  if(avg15El) avg15El.textContent = Number.isFinite(k.avg15) ? ('★' + fmt(k.avg15,2)) : '—';
-  if(deltaEl) deltaEl.textContent = Number.isFinite(k.avg7) && Number.isFinite(k.baseline) ? ((k.avg7-k.baseline)>=0?'+':'') + fmt(k.avg7-k.baseline,2) : '—';
-
-  const all7 = lastNDays(all, 7);
-  const topics = computeTopics(all7);
-  const pos = Array.isArray(topics && topics.pos) ? topics.pos : [];
-  const neg = Array.isArray(topics && topics.neg) ? topics.neg : [];
-  const tHTML = '<div class="topics-grid">'
-    + '<div><div class="section-title">PRINCIPAIS MOTIVOS — POSITIVOS</div>'
-    + (pos.length ? pos.slice(0,5).map(function(x){ return '<div class="topic-row"><span>' + esc(x.motivo || x.text || '—') + '</span><b>' + esc(x.n != null ? x.n : (x.count != null ? x.count : '')) + '</b></div>'; }).join('') : '<div class="placeholder">Sem dados disponíveis</div>')
-    + '</div><div><div class="section-title">PRINCIPAIS MOTIVOS — NEGATIVOS</div>'
-    + (neg.length ? neg.slice(0,5).map(function(x){ return '<div class="topic-row"><span>' + esc(x.motivo || x.text || '—') + '</span><b>' + esc(x.n != null ? x.n : (x.count != null ? x.count : '')) + '</b></div>'; }).join('') : '<div class="placeholder">Sem dados disponíveis</div>')
-    + '</div></div>';
-  if(topicsBox) topicsBox.innerHTML = tHTML;
-
-  const movers = computeMovers(all);
-  const up = Array.isArray(movers && movers.up) ? movers.up.slice(0,5) : [];
-  const down = Array.isArray(movers && movers.down) ? movers.down.slice(0,5) : [];
-  function rowsHtml(arr){
-    return arr.map(function(x){ return '<tr><td>' + esc(x.hospital || '—') + '</td><td>' + fmt(x.avg7,2) + '★</td><td>' + fmt(x.avgHist,2) + '★</td><td>' + (x.vol7d || 0) + '</td></tr>'; }).join('') || '<tr><td colspan="4">—</td></tr>';
-  }
-  const mHTML = '<div class="section-title">TOP 5 MELHORAS</div><table><thead><tr><th>HOSPITAL</th><th>7D</th><th>HIST</th><th>VOL7D</th></tr></thead><tbody>' + rowsHtml(up) + '</tbody></table>'
-    + '<div class="section-title" style="margin-top:10px">TOP 5 QUEDAS</div><table><thead><tr><th>HOSPITAL</th><th>7D</th><th>HIST</th><th>VOL7D</th></tr></thead><tbody>' + rowsHtml(down) + '</tbody></table>';
-  if(moversBox) moversBox.innerHTML = mHTML;
-
-  const rows7 = all7.slice(-18).reverse();
-  const posRows = rows7.filter(function(r){ return Number(r.rating) >= 4; }).slice(0,9);
-  const negRows = rows7.filter(function(r){ return Number(r.rating) <= 2; }).slice(0,9);
-  const posHtml = posRows.length ? posRows.map(function(r){ return '<div class="comment-card"><b>' + esc(r.hospital || '—') + '</b><div>' + '★★★★★'.slice(0, Math.max(0, Math.min(5, Math.round(Number(r.rating) || 0)))) + '</div><div>' + esc(r.author || '') + '</div><div>' + esc(r.text || '') + '</div></div>'; }).join('') : '<div class="placeholder">Sem dados disponíveis</div>';
-  const negHtml = negRows.length ? negRows.map(function(r){ return '<div class="comment-card"><b>' + esc(r.hospital || '—') + '</b><div>' + '★'.repeat(Math.max(1, Math.min(5, Math.round(Number(r.rating) || 1)))) + '</div><div>' + esc(r.author || '') + '</div><div>' + esc(r.text || '') + '</div></div>'; }).join('') : '<div class="placeholder">Sem dados disponíveis</div>';
-  if(commentsBox) commentsBox.innerHTML = '<div class=\"section-title\">POSITIVOS</div>' + posHtml + '<div class=\"section-title\" style=\"margin-top:10px\">NEGATIVOS</div>' + negHtml;
-  dbg('render_boxes', {topics: !!topicsBox, movers: !!moversBox, comments: !!commentsBox});
-
-  if(report90) renderReport90(all);
-
-  const series = buildDailyTrend(all7, 15);
-  const labels = series.map(function(x){ return x.day.slice(5); });
-  const dataVol = series.map(function(x){ return x.volume; });
-  const dataAvg = series.map(function(x){ return x.avg; });
-  const baseline = k.baseline;
-  if(!chart){
-    const ctx = $('complaintsChart').getContext('2d');
-    chart = new Chart(ctx, { data:{ labels:[], datasets:[] }, options:{ responsive:true, maintainAspectRatio:false } });
-  }
-  chart.data.labels = labels;
-  chart.data.datasets = [
-    { type:'bar', label:'Volume (n)', data:dataVol },
-    { type:'line', label:'Nota média (★)', data:dataAvg },
-    { type:'line', label:'Média geral', data:labels.map(function(){ return baseline; }) },
-  ];
-  chart.update();
-  dbg('render_done', { topics: !!topicsBox, movers: !!moversBox, comments: !!commentsBox });
-  return k;
-}
-function renderReport90(all){
-  const el = document.getElementById('report90');
-  if(!el){ dbg('renderTyphoon_noEl', true); return; }
-
-  const rows = computeS3S4_90d(all);
-  const s4 = rows.filter(x=>x.sev==='S4');
-  const s3 = rows.filter(x=>x.sev==='S3');
-
-  // concentration
-  const by = new Map();
-  for(const r of rows){
-    const k = r.hospital || '—';
-    const cur = by.get(k) || {S4:0,S3:0};
-    cur[r.sev] = (cur[r.sev]||0) + 1;
-    by.set(k, cur);
-  }
-  const rank = Array.from(by.entries()).sort((a,b)=>{
-    const sa = (a[1].S4*1000 + a[1].S3);
-    const sb = (b[1].S4*1000 + b[1].S3);
-    if(sa!==sb) return sb-sa;
-    return a[0].localeCompare(b[0]);
-  });
-
-  function topHospTable(limit=12){
-    const rows = rank.slice(0,limit);
-    if(!rows.length) return '<div class="meta">—</div>';
-    return `
-      <table>
-        <thead><tr><th>Hospital</th><th style="text-align:right">S4</th><th style="text-align:right">S3</th></tr></thead>
-        <tbody>
-          ${rows.map(([h,c])=>`<tr><td title="${esc(h)}">${esc(h)}</td><td style="text-align:right">${c.S4||0}</td><td style="text-align:right">${c.S3||0}</td></tr>`).join('')}
-        </tbody>
-      </table>
-    `;
-  }
-
-  function caseBlock(x, idx){
-    const id = `${x.sev}-${String(idx).padStart(2,'0')}`;
-    const tg = (x.tags && x.tags.length) ? x.tags.join(', ') : '—';
-    const who = x.author ? ` · ${esc(x.author)}` : '';
-    const head = `${id} · ${esc(x.dtTxt)} · ${esc(String(x.rating))}★`;
-    const sub = `${esc(x.hospital||'—')}${who} · tags: ${esc(tg)}`;
-    return `
-      <div class="caseOpen">
-        <div class="caseHeadRow">
-          <div class="caseLeft">
-            <div class="caseTitle">${head}</div>
-            <div class="caseSub">${sub}</div>
-          </div>
-          <div class="caseMeta">
-            <span class="badge ${x.sev==='S4'?'s4':'s3'}">${esc(x.sev)}</span>
-          </div>
-        </div>
-        <div class="caseText"><pre>${esc(x.text||'')}</pre></div>
-      </div>
-    `;
-  }
-
-  const html = `
-    <div class="reportGrid">
-      <div class="reportCard">
-        <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
-          <span class="badge s4">S4: <b>${s4.length}</b></span>
-          <span class="badge s3">S3: <b>${s3.length}</b></span>
-          <span class="badge">Total: <b>${rows.length}</b></span>
-        </div>
-        <div style="margin-top:10px; font-size:0.86rem; color: rgba(15,23,42,0.86); line-height:1.28rem;">
-          <div style="font-family:var(--mono);font-size:0.68rem;color:var(--text-muted);letter-spacing:0.06em">CONCEITO (BEST‑EFFORT)</div>
-          <div style="margin-top:6px">
-            <b>S4</b> = sinal de risco extremo (ex.: óbito/morte, sepse, erro grave, agressão/abuso, parada), priorizado para atenção imediata.<br/>
-            <b>S3</b> = risco alto / falha assistencial percebida (ex.: infecção, negligência/descaso, gestante/bebê, queda/fratura, sangramento, diagnóstico errado/tardio).<br/>
-            Classificação automática por palavras‑chave em reviews 1–2★; pode ter falso‑positivo/falso‑negativo.
-          </div>
-        </div>
-      </div>
-
-      <div class="reportCard">
-        <div style="font-family:var(--mono);font-size:0.68rem;color:var(--text-muted);letter-spacing:0.06em">CONCENTRAÇÃO (TOP)</div>
-        <div style="margin-top:8px">${topHospTable(10)}</div>
-      </div>
-    </div>
-
-    <h2 style="margin-top:14px">Casos S4 — texto completo</h2>
-    ${s4.length ? s4.map((x,i)=>caseBlock(x,i+1)).join('') : '<div class="meta">Nenhum S4 no período.</div>'}
-
-    <h2 style="margin-top:14px">Casos S3 — texto completo</h2>
-    ${s3.length ? s3.map((x,i)=>caseBlock(x,i+1)).join('') : '<div class="meta">Nenhum S3 no período.</div>'}
-  `;
-
-  el.innerHTML = html;
-
-  // store plain text for copy
-  window.__report90_text = buildReport90Text(rows, rank);
-}
-
-/* buildReport90Telegram removed: sharing via file download works better than paste formatting */
-
-function buildReport90Telegram(rows, rank){
-  const s4 = rows.filter(x=>x.sev==='S4');
-  const s3 = rows.filter(x=>x.sev==='S3');
-
-  const lines=[];
-  lines.push('RELATÓRIO 90D — REVIEWS CRÍTICOS');
-  lines.push(`S4: ${s4.length} | S3: ${s3.length} | Total: ${rows.length}`);
-  lines.push('');
-
-  // Top concentration
-  if(rank && rank.length){
-    lines.push('CONCENTRAÇÃO (TOP)');
-    rank.slice(0,10).forEach(([h,c])=>{
-      lines.push(`• ${h} — S4 ${c.S4||0} | S3 ${c.S3||0}`);
-    });
-    lines.push('');
-  }
-
-  function caseLines(x, idx){
-    const id = `${x.sev}-${String(idx).padStart(2,'0')}`;
-    const who = x.author ? ` — ${x.author}` : '';
-    const tg = (x.tags && x.tags.length) ? x.tags.join(', ') : '—';
-    lines.push('────────────────────────');
-    lines.push(`${id} · ${x.dtTxt} · ${x.rating}★`);
-    lines.push(`${x.hospital}${who}`);
-    lines.push(`tags: ${tg}`);
-    lines.push('');
-    lines.push(x.text || '');
-    lines.push('');
-  }
-
-  lines.push('S4 — TEXTO COMPLETO');
-  if(!s4.length) lines.push('Nenhum S4 no período.\n');
-  s4.forEach((x,i)=>caseLines(x,i+1));
-
-  lines.push('S3 — TEXTO COMPLETO');
-  if(!s3.length) lines.push('Nenhum S3 no período.\n');
-  s3.forEach((x,i)=>caseLines(x,i+1));
-
-  return lines.join('\n');
-}
-
-function buildReport90Text(rows, rank){
-  const s4 = rows.filter(x=>x.sev==='S4');
-  const s3 = rows.filter(x=>x.sev==='S3');
-  const lines=[];
-  lines.push('Relatório Executivo — Reviews Críticos (S3/S4) — últimos 90 dias');
-  lines.push('');
-  lines.push(`Resumo: S4 ${s4.length} | S3 ${s3.length} | Total ${rows.length}`);
-  lines.push('');
-  lines.push('Concentração por unidade:');
-  for(const [h,c] of rank){
-    lines.push(`- ${h}: S4 ${c.S4||0} | S3 ${c.S3||0}`);
-  }
-  lines.push('');
-  lines.push('S4 — texto completo');
-  s4.forEach((x,i)=>{
-    lines.push('');
-    lines.push(`${x.sev}-${String(i+1).padStart(2,'0')} · ${x.dtTxt} · ${x.rating}★ · ${x.hospital}${x.author?(' — '+x.author):''}`);
-    lines.push(`tags: ${(x.tags&&x.tags.length)?x.tags.join(', '):'—'}`);
-    lines.push(x.text||'');
-  });
-  lines.push('');
-  lines.push('S3 — texto completo');
-  s3.forEach((x,i)=>{
-    lines.push('');
-    lines.push(`${x.sev}-${String(i+1).padStart(2,'0')} · ${x.dtTxt} · ${x.rating}★ · ${x.hospital}${x.author?(' — '+x.author):''}`);
-    lines.push(`tags: ${(x.tags&&x.tags.length)?x.tags.join(', '):'—'}`);
-    lines.push(x.text||'');
-  });
-  return lines.join('\n');
-}
-
-async function render(all, payloadKpis, payloadTrend15){
-  dbg('render_start', { all: all?.length || 0 });
-  const topicsBox = $('topicsBox');
-  const moversBox = $('moversBox');
-  const commentsBox = $('commentsBox');
-  const kpiRank = $('kpiRank');
-  const kpiAvg7 = $('kpiAvg7');
-  const kpiVol7 = $('kpiVol7');
-  const kpiAvg15 = $('kpiAvg15');
-  const kpiDelta = $('kpiDelta');
-  const report90 = $('report90');
-  const setHTML = (el, html) => { if(el) el.innerHTML = html; };
-
-  const k = computeKPIs(all);
-  if(payloadKpis && typeof payloadKpis === 'object'){
-    if(payloadKpis.v7!=null) k.v7 = payloadKpis.v7;
-    if(payloadKpis.vPrev!=null) k.vPrev = payloadKpis.vPrev;
-    if(payloadKpis.vDelta!=null) k.vDelta = payloadKpis.vDelta;
-    if(payloadKpis.avg7!=null) k.avg7 = payloadKpis.avg7;
-    if(payloadKpis.baseline!=null) k.baseline = payloadKpis.baseline;
-  }
-  if(payloadTrend15 && typeof payloadTrend15 === 'object' && payloadTrend15.baseline!=null) k.baseline = payloadTrend15.baseline;
-
-  if(kpiRank) kpiRank.textContent = k.rankText || '—';
-  if(kpiAvg7) kpiAvg7.textContent = Number.isFinite(k.avg7) ? ('★' + fmt(k.avg7,2)) : '—';
-  if(kpiVol7) kpiVol7.textContent = Number.isFinite(k.v7) ? String(k.v7) : '—';
-  if(kpiAvg15) kpiAvg15.textContent = Number.isFinite(k.avg15) ? ('★' + fmt(k.avg15,2)) : '—';
-  if(kpiDelta) kpiDelta.textContent = Number.isFinite(k.avg7) && Number.isFinite(k.baseline) ? ((k.avg7-k.baseline)>=0?'+':'') + fmt(k.avg7-k.baseline,2) : '—';
-
-  const topics7 = computeTopics(lastNDays(all, 7));
-  const pos = (topics7.pos && topics7.pos.length) ? topics7.pos : [];
-  const neg = (topics7.neg && topics7.neg.length) ? topics7.neg : [];
-  setHTML(topicsBox, '<div class="topics-grid"><div><div class="section-title">PRINCIPAIS MOTIVOS — POSITIVOS</div>' +
-    (pos.length ? pos.slice(0,5).map(x => '<div class="topic-row"><span>' + esc(x.motivo||x.text||'—') + '</span><b>' + esc(x.n ?? x.count ?? '') + '</b></div>').join('') : '<div class="placeholder">Sem dados disponíveis</div>') +
-    '</div><div><div class="section-title">PRINCIPAIS MOTIVOS — NEGATIVOS</div>' +
-    (neg.length ? neg.slice(0,5).map(x => '<div class="topic-row"><span>' + esc(x.motivo||x.text||'—') + '</span><b>' + esc(x.n ?? x.count ?? '') + '</b></div>').join('') : '<div class="placeholder">Sem dados disponíveis</div>') +
-    '</div></div>');
-
-  const movers = computeMovers(all);
-  setHTML(moversBox, '<div class="section-title">TOP 5 MELHORAS</div><table><thead><tr><th>HOSPITAL</th><th>7D</th><th>HIST</th><th>VOL7D</th></tr></thead><tbody>' +
-    ((movers.up||[]).slice(0,5).map(x => '<tr><td>' + esc(x.hospital||'—') + '</td><td>' + fmt(x.avg7,2) + '★</td><td>' + fmt(x.avgHist,2) + '★</td><td>' + (x.vol7d||0) + '</td></tr>').join('') || '<tr><td colspan="4">—</td></tr>') +
-    '</tbody></table><div class="section-title" style="margin-top:10px">TOP 5 QUEDAS</div><table><thead><tr><th>HOSPITAL</th><th>7D</th><th>HIST</th><th>VOL7D</th></tr></thead><tbody>' +
-    ((movers.down||[]).slice(0,5).map(x => '<tr><td>' + esc(x.hospital||'—') + '</td><td>' + fmt(x.avg7,2) + '★</td><td>' + fmt(x.avgHist,2) + '★</td><td>' + (x.vol7d||0) + '</td></tr>').join('') || '<tr><td colspan="4">—</td></tr>') +
-    '</tbody></table>');
-
-  const rows7 = lastNDays(all, 7).slice(-18).reverse();
-  setHTML(commentsBox, '<div class="section-title">POSITIVOS</div>' +
-    (rows7.filter(r=>Number(r.rating)>=4).slice(0,9).map(r => '<div class="comment-card"><b>' + esc(r.hospital||'—') + '</b><div>' + '★★★★★'.slice(0,Math.max(0,Math.min(5,Math.round(Number(r.rating)||0)))) + '</div><div>' + esc(r.author||'') + '</div><div>' + esc(r.text||'') + '</div></div>').join('') || '<div class="placeholder">Sem dados disponíveis</div>') +
-    '<div class="section-title" style="margin-top:10px">NEGATIVOS</div>' +
-    (rows7.filter(r=>Number(r.rating)<=2).slice(0,9).map(r => '<div class="comment-card"><b>' + esc(r.hospital||'—') + '</b><div>' + '★'.repeat(Math.max(1,Math.min(5,Math.round(Number(r.rating)||1)))) + '</div><div>' + esc(r.author||'') + '</div><div>' + esc(r.text||'') + '</div></div>').join('') || '<div class="placeholder">Sem dados disponíveis</div>'));
-
-  if(report90) renderReport90(all);
-  const baseline = k.baseline;
-  const series = buildDailyTrend(lastNDays(all,15), 15);
-  const labels = series.map(x=>x.day.slice(5));
-  const dataVol = series.map(x=>x.volume);
-  const dataAvg = series.map(x=>x.avg);
-  if(!chart){
-    const ctx = $('complaintsChart').getContext('2d');
-    chart = new Chart(ctx, { data:{ labels:[], datasets:[] }, options:{ responsive:true, maintainAspectRatio:false } });
-  }
-  dbg('renderTyphoon_chart_ready', !!chart);
-  if(chart){
-    chart.data.labels = labels;
-    chart.data.datasets = [
-      { type:'bar', label:'Volume (n)', data:dataVol },
-      { type:'line', label:'Nota média (★)', data:dataAvg },
-      { type:'line', label:'Média geral', data:labels.map(()=>baseline) },
-    ];
-    chart.update();
-  dbg('render_done', { topics: !!topicsBox, movers: !!moversBox, comments: !!commentsBox });
-  }
-  return k;
-}
 function renderReport90(all){
   const el = document.getElementById('report90');
   if(!el){ dbg('renderTyphoon_noEl', true); return; }
@@ -3152,21 +1567,35 @@ async function load(){
   if(btn) btn.disabled = true;
   setStatus('Carregando…');
   try{
-    const r = await fetch('/api/reviews/reviewsdash_summary.json?ts=' + Date.now(), { cache:'no-store' });
-    const summary = await r.json();
-    dbg('summary_keys', Object.keys(summary || {}));
-    const hospitals = Array.isArray(summary?.hospitals) ? summary.hospitals : [];
+    // Sempre usa dash.json (2.9MB). Filtro Raul é 100% client-side, sem fetch extra.
+    const r = await fetch('/api/reviews/dash.json?ts=' + Date.now(), { cache:'no-store' });
+    const unifiedRes = await r.json();
+    const sourceRaw = (unifiedRes && Array.isArray(unifiedRes.hospitals)) ? unifiedRes : { hospitals: [] };
+
+    // Filtro Raul: client-side puro — filtra hospitals[] em memória, zero fetch extra
+    const filteredHospitals = isRaulFilterActive
+      ? sourceRaw.hospitals.filter(function(h){ return RAUL_HOSPITALS.has(h.placeId); })
+      : sourceRaw.hospitals;
+    const source = Object.assign({}, sourceRaw, { hospitals: filteredHospitals });
+    const payloadKpis = null;
+    const payloadTrend15 = null;
+
+    const hospitals = flattenHospitals(source, null);
     const all = computeAll(hospitals);
     dbg('hospitals_len', hospitals.length);
     dbg('all_len', all.length);
-    try{ await render(all, summary?.kpi || null, summary?.trend15 || null); }catch(err){ dbg('render_call_err', String(err)); }
+    try{ await render(all, (payloadKpis && Object.keys(payloadKpis).length) ? payloadKpis : null, payloadTrend15); }catch(err){ dbg('render_call_err', String(err)); }
     try{ renderReport90(all); }catch(err){ dbg('report90_call_err', String(err)); }
-    try{ setRiskSiren(summary?.report90 || computeS3S4_24h(all)); }catch(err){ dbg('risk_siren_err', String(err)); }
-    const gen = summary?.generatedAt ? new Date(summary.generatedAt) : new Date();
+    dbg('before_risk_siren', true);
+    setRiskSiren(computeS3S4_24h(all));
+    dbg('after_risk_siren', true);
+    const gen = source?.updatedAt ? new Date(source.updatedAt) : (source?.generatedAt ? new Date(source.generatedAt) : new Date());
     const hh = String(gen.getHours()).padStart(2,'0');
     const mm = String(gen.getMinutes()).padStart(2,'0');
     const ss = String(gen.getSeconds()).padStart(2,'0');
-    setStatus('Atualizado ' + hh + ':' + mm + ':' + ss);
+    const _rLabel = isRaulFilterActive ? ' • VP Raul (' + hospitals.length + ')' : '';
+    setStatus('Atualizado ' + hh + ':' + mm + ':' + ss + _rLabel);
+    // hard final DOM writes to guarantee visible output
     if(tBox && tBox.innerText.trim() === 'Carregando…') tBox.innerHTML = '<div class="placeholder">Sem dados disponíveis</div>';
     if(mBox && mBox.innerText.trim() === 'Carregando…') mBox.innerHTML = '<div class="placeholder">Sem dados disponíveis</div>';
     if(cBox && cBox.innerText.trim() === 'Carregando…') cBox.innerHTML = '<div class="placeholder">Sem dados disponíveis</div>';
@@ -3176,7 +1605,10 @@ async function load(){
     if(tBox) tBox.innerHTML = '<div class="placeholder">Falha ao carregar</div>';
     if(mBox) mBox.innerHTML = '<div class="placeholder">Falha ao carregar</div>';
     if(cBox) cBox.innerHTML = '<div class="placeholder">Falha ao carregar</div>';
-  }finally{
+  } finally {
+    if(tBox && tBox.innerText.trim() === 'Carregando…') tBox.innerHTML = '<div class="placeholder">Sem dados disponíveis</div>';
+    if(mBox && mBox.innerText.trim() === 'Carregando…') mBox.innerHTML = '<div class="placeholder">Sem dados disponíveis</div>';
+    if(cBox && cBox.innerText.trim() === 'Carregando…') cBox.innerHTML = '<div class="placeholder">Sem dados disponíveis</div>';
     if(btn) btn.disabled = false;
   }
 }
@@ -3201,6 +1633,16 @@ function setView(which){
 }
 
 window.addEventListener('DOMContentLoaded', ()=>{
+  // Sidebar toggle (mobile drawer)
+  const sidebar = document.getElementById('sidebar');
+  const sidebarOverlay = document.getElementById('sidebarOverlay');
+  const btnHamburger = document.getElementById('btnHamburger');
+  function openSidebar(){ if(sidebar) sidebar.classList.add('open'); if(sidebarOverlay) sidebarOverlay.classList.add('open'); }
+  function closeSidebar(){ if(sidebar) sidebar.classList.remove('open'); if(sidebarOverlay) sidebarOverlay.classList.remove('open'); }
+  if(btnHamburger) btnHamburger.addEventListener('click', ()=>{ sidebar && sidebar.classList.contains('open') ? closeSidebar() : openSidebar(); });
+  if(sidebarOverlay) sidebarOverlay.addEventListener('click', closeSidebar);
+  if(sidebar){ sidebar.querySelectorAll('.nav-item').forEach(a=>{ a.addEventListener('click', closeSidebar); }); }
+
   const btn = $('btn-refresh');
   if(btn) btn.addEventListener('click', load);
 

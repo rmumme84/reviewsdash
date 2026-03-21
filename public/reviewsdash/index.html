@@ -6,7 +6,7 @@
   <title>Reviews — Rede D'Or</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display:ital@0;1&family=DM+Mono:wght@400;500&family=Sora:wght@300;400;500;600&display=swap" rel="stylesheet" />
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+  <script src="/vendor/chart.umd.min.js"></script>
   <style>
     :root {
       --bg : #F0F2F5;
@@ -30,24 +30,48 @@
     html { font-size: 14px; }
     body { font-family: var(--sans); background: var(--bg); color: var(--text-primary); display: flex; min-height: 100vh; overflow-x:hidden; } /* mobile-first */
 
-    .sidebar { width: var(--sidebar-w); min-height: 100vh; background: var(--brand); position: fixed; top: 0; left: 0; display: flex; flex-direction: column; z-index: 100; }
+    /* Desktop sidebar: oculta por padrão, aparece ao hover */
+    .sidebar {
+      width: var(--sidebar-w);
+      min-height: 100vh;
+      background: var(--brand);
+      position: fixed;
+      top: 0; left: 0;
+      display: flex;
+      flex-direction: column;
+      z-index: 100;
+      overflow: hidden;
+      transform: translateX(-100%);
+      transition: transform 0.22s ease, box-shadow 0.22s ease;
+    }
     .sidebar-logo { padding: 22px 20px 18px; border-bottom: 1px solid rgba(255,255,255,0.1); }
     .sidebar-logo .company-name { font-family: var(--serif); font-size: 1.25rem; color: #fff; line-height: 1.2; }
     .sidebar-logo .ri-label { font-family: var(--mono); font-size: 0.65rem; color: rgba(255,255,255,0.5); letter-spacing: 0.15em; text-transform: uppercase; margin-top: 2px; }
     .sidebar-nav { padding: 14px 0; flex: 1; }
     .nav-section-label { font-family: var(--mono); font-size: 0.6rem; letter-spacing: 0.15em; text-transform: uppercase; color: rgba(255,255,255,0.35); padding: 14px 20px 6px; }
-    .nav-item { display: flex; align-items: center; gap: 10px; padding: 9px 20px; color: rgba(255,255,255,0.65); cursor: pointer; border-left: 3px solid transparent; transition: all 0.15s; font-size: 0.82rem; font-weight: 400; text-decoration: none; }
+    .nav-item { display: flex; align-items: center; gap: 10px; padding: 9px 20px; color: rgba(255,255,255,0.65); cursor: pointer; border-left: 3px solid transparent; transition: all 0.15s; font-size: 0.82rem; font-weight: 400; text-decoration: none; white-space: nowrap; }
     .nav-item:hover { background: rgba(255,255,255,0.07); color: #fff; }
     .nav-item.active { background: rgba(255,255,255,0.1); border-left-color: #60A5FA; color: #fff; font-weight: 500; }
     .nav-item svg { opacity: 0.8; flex-shrink: 0; }
     .nav-item.active svg { opacity: 1; }
     .sidebar-footer { padding: 14px 20px; border-top: 1px solid rgba(255,255,255,0.1); font-size: 0.7rem; color: rgba(255,255,255,0.3); font-family: var(--mono); }
 
-    .main { margin-left: var(--sidebar-w); flex: 1; display: flex; flex-direction: column; height: 100vh; overflow: hidden; }
+    .main { margin-left: 0; flex: 1; display: flex; flex-direction: column; height: 100vh; overflow: hidden; }
 
-    /* iPhone: hide sidebar and use full width */
+    /* Mobile: sidebar como drawer (toggle via hamburger) */
+    .btn-hamburger { display: none; background: none; border: none; cursor: pointer; padding: 6px; color: var(--text-muted); line-height: 1; }
+    .sidebar-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.35); z-index: 99; }
+    @media (max-width: 768px){
+      .btn-hamburger { display: flex; align-items: center; }
+      .sidebar { transform: translateX(-100%); transition: transform 0.22s ease; }
+      .sidebar.open { transform: translateX(0); }
+      .sidebar-overlay.open { display: block; }
+      .main{ margin-left: 0; height:auto; overflow: visible; }
+      .topbar{ padding: 0 12px; position: sticky; top: 0; }
+      .content{ padding: 10px 10px; height:auto; overflow: visible; }
+      body{ min-height: auto; }
+    }
     @media (max-width: 520px){
-      .sidebar{ display:none; }
       .main{ margin-left: 0; height:auto; overflow: visible; }
       .topbar{ padding: 0 12px; position: sticky; top: 0; }
       .content{ padding: 10px 10px; height:auto; overflow: visible; }
@@ -249,17 +273,29 @@
     .crit.s1{ background: rgba(148,163,184,0.22); color:#0f172a; }
 
     /* (AI block removed; using Typhoon chart instead) */
+
+    /* Trigger zone: faixa invisível na borda esquerda para acionar o hover */
+    .sidebar-trigger {
+      position: fixed;
+      top: 0; left: 0;
+      width: 8px;
+      height: 100vh;
+      z-index: 99;
+      cursor: pointer;
+    }
+    .sidebar-trigger:hover ~ .sidebar,
+    .sidebar-trigger:hover + .sidebar,
+    .sidebar:hover { transform: translateX(0); box-shadow: 4px 0 24px rgba(0,0,0,0.22); }
   </style>
 </head>
 <body>
-  <aside class="sidebar">
-    <div class="sidebar-logo">
-      <div class="company-name">Rede D'Or<br/>São Luiz</div>
-      <div class="ri-label">Reviews (Google)</div>
-    </div>
+  <div class="sidebar-trigger"></div>
+  <div class="sidebar-overlay" id="sidebarOverlay"></div>
+  <aside class="sidebar" id="sidebar">
+
     <nav class="sidebar-nav">
       <div class="nav-section-label">Painéis</div>
-      <a class="nav-item" href="/rdor3/">
+      <a class="nav-item" href="/rdor3b/">
         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
         Painel do RI
       </a>
@@ -277,6 +313,9 @@
   <div class="main">
     <div class="topbar">
       <div class="topbar-left">
+        <button class="btn-hamburger" id="btnHamburger" aria-label="Menu" type="button">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+        </button>
         <span class="ticker-badge">REVIEWS</span>
         <span class="page-title">Painel de Reviews</span>
         <div class="seg">
@@ -293,6 +332,10 @@
           <div class="status-dot" id="status-dot"></div>
           <span class="status-text" id="status-text">Carregando…</span>
         </div>
+                <button id="btnRaulFilter" onclick="toggleRaulFilter()" title="Filtrar hospitais VP Raul (Bahia, DF, PE)" style="background:none;border:1px solid var(--border);border-radius:6px;padding:5px 10px;cursor:pointer;font-size:0.75rem;color:var(--text-muted);font-family:var(--sans);display:flex;align-items:center;gap:5px;transition:all 0.15s;">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg>
+          Raul
+        </button>
         <button class="btn-refresh" id="btn-refresh" type="button">Atualizar</button>
       </div>
     </div>
@@ -302,10 +345,10 @@
         <div class="panel-grid">
         <div class="panel-left">
           <div class="kpi-grid" id="kpiGrid">
-            <div class="kpi-card"><div class="kpi-label">Ranking Geral</div><div class="kpi-value">—</div><div class="kpi-sub">carregando</div></div>
-            <div class="kpi-card"><div class="kpi-label">Média (7d)</div><div class="kpi-value">—</div><div class="kpi-sub">vs média geral</div></div>
-            <div class="kpi-card"><div class="kpi-label">Volume (7d)</div><div class="kpi-value">—</div><div class="kpi-sub">vs 7d anterior</div></div>
-            <div class="kpi-card" id="kpi15d"><div class="kpi-label">Média (15d)</div><div class="kpi-value">—</div><div class="kpi-sub">nota média no período</div></div>
+            <div class="kpi-card"><div class="kpi-label">Ranking Geral</div><div class="kpi-value" id="kpiRank">—</div><div class="kpi-sub">média ponderada rede</div></div>
+            <div class="kpi-card"><div class="kpi-label">Média (7d)</div><div class="kpi-value" id="kpiAvg7">—</div><div class="kpi-sub" id="kpiDelta">vs média geral</div></div>
+            <div class="kpi-card"><div class="kpi-label">Volume (7d)</div><div class="kpi-value" id="kpiVol7">—</div><div class="kpi-sub">vs 7d anterior</div></div>
+            <div class="kpi-card" id="kpi15d"><div class="kpi-label">Média (15d)</div><div class="kpi-value" id="kpiAvg15">—</div><div class="kpi-sub">nota média no período</div></div>
           </div>
 
           <div class="card evoCard" style="margin-top:8px;">
@@ -386,6 +429,6 @@
     </div>
   </div>
 
-  <script src="/reviewsdash/reviewsdash.js?v=2"></script>
+  <script src="/reviewsdash/reviewsdash.js?v=10"></script>
 </body>
 </html>
